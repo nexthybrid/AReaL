@@ -8,6 +8,7 @@
 #   - fast: Fast training (20-30 min, 200 samples, 1 epoch)
 #   - 1hour: 1-hour training (500 samples, 2 epochs) [default]
 #   - 3hour: 3-hour training (1000 samples, 3 epochs)
+#   - 4000samples_4GPUs: Half dataset (4k samples) using 4x A40 GPUs
 #   - full: Full training (all samples, 5 epochs) - REQUIRES H200/H100/A100-80GB or equivalent
 #
 # All configs use memory-optimized settings that work on all GPUs.
@@ -50,10 +51,12 @@ if [ -z "$GPU_INFO" ]; then
     echo "WARNING: nvidia-smi not available. GPU may not be accessible."
     GPU_NAME=""
     GPU_MEMORY=""
+    GPU_COUNT=0
 else
     echo "$GPU_INFO"
     GPU_NAME=$(echo "$GPU_INFO" | cut -d',' -f1 | xargs)
     GPU_MEMORY=$(echo "$GPU_INFO" | cut -d',' -f2 | xargs | grep -oE '[0-9]+' | head -1)
+    GPU_COUNT=$(echo "$GPU_INFO" | wc -l | xargs)
     # Set PyTorch memory allocator for better memory management
     export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     echo "Set PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True for better memory management"
@@ -101,6 +104,17 @@ case "$CONFIG_NAME" in
         EXPERIMENT_NAME="gsm8k-grpo-cloud-3hour"
         echo "Using 3-HOUR training configuration (~3-4 hours)"
         echo "Note: Uses limited dataset (1000 samples)"
+        ;;
+    4000samples_4GPUs)
+        if [ -z "$GPU_COUNT" ] || [ "$GPU_COUNT" -lt 4 ]; then
+            echo "ERROR: 4000samples_4GPUs configuration requires at least 4 GPUs (e.g., 4x A40)."
+            echo "Detected GPU count: ${GPU_COUNT:-0}"
+            exit 1
+        fi
+        CONFIG_FILE="examples/cloud_gsm8k/gsm8k_grpo_4000samples_4GPUs.yaml"
+        TRAIN_SCRIPT="examples/cloud_gsm8k/gsm8k_grpo_train.py"
+        EXPERIMENT_NAME="gsm8k-grpo-cloud-4gpu-4000samples"
+        echo "Using 4000-SAMPLES-4GPUs configuration (~2-3 days, half GSM8K, 4x A40)."
         ;;
     full)
         # Full training requires high-end GPUs

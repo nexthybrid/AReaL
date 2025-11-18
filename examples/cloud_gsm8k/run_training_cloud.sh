@@ -8,7 +8,8 @@
 #   - fast: Fast training (20-30 min, 200 samples, 1 epoch)
 #   - 1hour: 1-hour training (500 samples, 2 epochs) [default]
 #   - 3hour: 3-hour training (1000 samples, 3 epochs)
-#   - 4000samples_4GPUs: Half dataset (4k samples) using 4x A40 GPUs
+#   - 2000samples_2GPUs: 2000 samples training with 2 GPUs (e.g., 2x A40, 2x RTX 4090)
+#   - 4000samples_4GPUs: 4000 samples training with 4 GPUs (e.g., 4x A40)
 #   - full: Full training (all samples, 5 epochs) - REQUIRES H200/H100/A100-80GB or equivalent
 #
 # All configs use memory-optimized settings that work on all GPUs.
@@ -105,6 +106,17 @@ case "$CONFIG_NAME" in
         echo "Using 3-HOUR training configuration (~3-4 hours)"
         echo "Note: Uses limited dataset (1000 samples)"
         ;;
+    2000samples_2GPUs)
+        if [ -z "$GPU_COUNT" ] || [ "$GPU_COUNT" -lt 2 ]; then
+            echo "ERROR: 2000samples_2GPUs configuration requires at least 2 GPUs (e.g., 2x A40, 2x RTX 4090)."
+            echo "Detected GPU count: ${GPU_COUNT:-0}"
+            exit 1
+        fi
+        CONFIG_FILE="examples/cloud_gsm8k/gsm8k_grpo_2000samples_2GPUs.yaml"
+        TRAIN_SCRIPT="examples/cloud_gsm8k/gsm8k_grpo_train.py"
+        EXPERIMENT_NAME="gsm8k-grpo-cloud-2gpu-2000samples"
+        echo "Using 2000-SAMPLES-2GPUs configuration (~1-2 days, 2000 samples, 2 GPUs)."
+        ;;
     4000samples_4GPUs)
         if [ -z "$GPU_COUNT" ] || [ "$GPU_COUNT" -lt 4 ]; then
             echo "ERROR: 4000samples_4GPUs configuration requires at least 4 GPUs (e.g., 4x A40)."
@@ -140,7 +152,7 @@ case "$CONFIG_NAME" in
         ;;
     *)
         echo "ERROR: Unknown config name: $CONFIG_NAME"
-        echo "Valid options: fast, 1hour, 3hour, full"
+        echo "Valid options: fast, 1hour, 3hour, 2000samples_2GPUs, 4000samples_4GPUs, full"
         exit 1
         ;;
 esac

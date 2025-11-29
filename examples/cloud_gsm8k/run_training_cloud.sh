@@ -17,6 +17,7 @@
 #   - reasoning_1000samples_2GPUs: Reasoning model with 1000 samples using 2x A40 GPUs
 #   - reasoning_2000samples_4GPUs: Reasoning model with 2000 samples using 4x A40 GPUs (uses 3 GPUs)
 #   - standard_1000samples_2GPUs: Standard GRPO with 1000 samples using 2x A100 GPUs (~3 hours)
+#   - standard_1000samples_2GPUs_improved: Improved GRPO with 1000 samples (tuned for accuracy) (~3-4 hours)
 #   - standard_2000samples_2GPUs: Standard GRPO with 2000 samples using 2x A100 GPUs (~6 hours)
 #   - standard_4000samples_2GPUs: Standard GRPO with 4000 samples using 2x A100 GPUs (~12 hours)
 #
@@ -221,8 +222,20 @@ check_full_training_gpu() {
 }
 
 
-# Select configuration
-case "$CONFIG_NAME" in
+# Check if CONFIG_NAME is a file path (ends with .yaml or .yml)
+# If so, use it directly instead of looking up a preset
+if [[ "$CONFIG_NAME" == *".yaml" ]] || [[ "$CONFIG_NAME" == *".yml" ]]; then
+    # It's a file path - use it directly
+    CONFIG_FILE="$CONFIG_NAME"
+    # Extract experiment name from filename
+    EXPERIMENT_NAME=$(basename "$CONFIG_FILE" .yaml | sed 's/_/-/g')
+    TRAIN_SCRIPT="examples/cloud_gsm8k/gsm8k_grpo_train.py"
+    echo "Using config file directly: $CONFIG_FILE"
+    echo "Experiment name: $EXPERIMENT_NAME"
+else
+    # It's a preset name - look it up in the case statement
+    # Select configuration
+    case "$CONFIG_NAME" in
     fastest)
         CONFIG_FILE="examples/cloud_gsm8k/gsm8k_grpo_fastest.yaml"
         TRAIN_SCRIPT="examples/cloud_gsm8k/gsm8k_grpo_train.py"
@@ -335,6 +348,23 @@ case "$CONFIG_NAME" in
         echo "Note: GRPO only (no reasoning XML). Dataset capped at 1000 samples (~3 hours)."
         echo "GPU count: $GPU_COUNT (required: 2)"
         ;;
+    standard_1000samples_2GPUs_improved)
+        # Check GPU count
+        if [ -z "$GPU_COUNT" ] || [ "$GPU_COUNT" -lt 2 ]; then
+            echo "ERROR: This config requires 2 GPUs"
+            echo "Detected: $GPU_COUNT GPU(s)"
+            echo ""
+            echo "This config is optimized for 2x A100 80GB (one GPU for SGLang, one for training)."
+            echo "Please use a pod with at least 2 GPUs or choose a single-GPU config."
+            exit 1
+        fi
+        CONFIG_FILE="examples/cloud_gsm8k/gsm8k_grpo_1000samples_2GPUs_improved.yaml"
+        TRAIN_SCRIPT="examples/cloud_gsm8k/gsm8k_grpo_train.py"
+        EXPERIMENT_NAME="gsm8k-grpo-cloud-2gpu-1000samples-improved"
+        echo "Using IMPROVED 1000 SAMPLES 2 GPUs configuration"
+        echo "Note: Tuned to improve accuracy (max_new_tokens=512, kl_ctl=0.01, eps_clip=0.2, etc.)"
+        echo "GPU count: $GPU_COUNT (required: 2)"
+        ;;
     standard_2000samples_2GPUs)
         # Check GPU count
         if [ -z "$GPU_COUNT" ] || [ "$GPU_COUNT" -lt 2 ]; then
@@ -388,10 +418,13 @@ case "$CONFIG_NAME" in
         ;;
     *)
         echo "ERROR: Unknown config name: $CONFIG_NAME"
-        echo "Valid options: fastest, fast, 1hour, 3hour, full, reasoning_fastest, reasoning_fast, reasoning_1hour, reasoning_3hour, reasoning_1000samples_2GPUs, reasoning_2000samples_4GPUs, standard_1000samples_2GPUs, standard_2000samples_2GPUs, standard_4000samples_2GPUs"
+        echo "Valid options: fastest, fast, 1hour, 3hour, full, reasoning_fastest, reasoning_fast, reasoning_1hour, reasoning_3hour, reasoning_1000samples_2GPUs, reasoning_2000samples_4GPUs, standard_1000samples_2GPUs, standard_1000samples_2GPUs_improved, standard_2000samples_2GPUs, standard_4000samples_2GPUs"
+        echo ""
+        echo "Or provide a full path to a config file (e.g., examples/cloud_gsm8k/gsm8k_grpo_1000samples_2GPUs_improved.yaml)"
         exit 1
         ;;
-esac
+    esac
+fi
 
 # Check if config file exists
 if [ ! -f "$CONFIG_FILE" ]; then

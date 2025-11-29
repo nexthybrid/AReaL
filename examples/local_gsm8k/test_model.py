@@ -10,6 +10,7 @@ from datetime import datetime
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
+from datasets import load_dataset
 from areal.reward.math_parser import process_results, parse_digits
 
 def test_model(
@@ -18,6 +19,7 @@ def test_model(
     max_new_tokens: int = 1024,
     log_dir: str | None = None,
     test_all: bool = False,
+    batch_size: int = 32
 ):
     """Test the model on GSM8K samples."""
     
@@ -39,6 +41,7 @@ def test_model(
     
     # Load model
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
@@ -56,19 +59,18 @@ def test_model(
         if mps_available:
             device = torch.device("mps")
     _log(f"Using device: {device}")
-    
-    torch_dtype = torch.float32  # Use float32 for CPU
+
+    # Use bfloat16 if GPU supports it (Ampere+), else float16
+    torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype=torch_dtype,
+        device_map="auto",
         trust_remote_code=True,
     )
-    model = model.to(device)
 
     # Load GSM8K test set
-    from datasets import load_dataset
-    
     dataset = load_dataset("openai/gsm8k", "main", split="test")
     
     # Determine how many samples to test
@@ -81,100 +83,93 @@ def test_model(
     
     results = []
     correct = 0
-    
-    pbar = tqdm(enumerate(dataset.select(range(num_samples))), total=num_samples)
-    for i, sample in pbar:
-        question = sample["question"]
-        
-        correct_answer = sample["answer"]
-        hashes_idx = correct_answer.find("#### ")
-        if hashes_idx != -1:
-            correct_answer = correct_answer[:hashes_idx] + "\\boxed{" + correct_answer[hashes_idx + 5 :] + "}"
-        
-        # Format prompt - Use GSM8K format (no \boxed{} prompt)
-        # This matches the training format
-        prompt = f"{question}\n"
-        
-        # Tokenize
-        messages = [
-            {"role": "user", "content": prompt},
-        ]
-        inputs = tokenizer.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            return_tensors="pt"
-        ).to(device)
+
+    data_list = list(dataset.select(range(num_samples)))
+    pbar = tqdm(total=num_samples)
+    for batch in get_batch(data_list, batch_size):
+        batch_prompts = []
+        batch_answers = []
+
+        for item in batch:
+            # Handle GSM8K formatting
+            ans = item["answer"]
+            hashes_idx = ans.find("#### ")
+            if hashes_idx != -1:
+                ans = ans[:hashes_idx] + "\\boxed{" + ans[hashes_idx + 5 :] + "}"
+            batch_answers.append(ans)
+
+            # Apply chat template to raw string
+            messages = [{"role": "user", "content": item["question"]}]
+            # We use the tokenizer's template string, not the tensor yet
+            formatted_prompt = tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
+            batch_prompts.append(formatted_prompt)
+
+        inputs = tokenizer(
+            batch_prompts,
+            return_tensors="pt",
+            padding=True,  # This uses the 'left' padding set earlier
+            truncation=True
+        ).to(model.device)
         
         # Generate with greedy decoding for stability
         with torch.no_grad():
-            gen_kwargs = {
-                "max_new_tokens": max_new_tokens,
-                "do_sample": False,
-                "pad_token_id": tokenizer.pad_token_id,
-                "eos_token_id": tokenizer.eos_token_id,
-            }
-            outputs = model.generate(inputs, **gen_kwargs)
-        
-        # Get the generated token IDs (excluding the prompt)
-        input_len = inputs.shape[-1]
-        generated_token_ids = outputs[0][input_len:]
-        
-        # Check if EOS was generated
-        eos_was_generated = tokenizer.eos_token_id in generated_token_ids.tolist()
-        eos_position = None
-        if eos_was_generated:
-            eos_positions = [i for i, tok_id in enumerate(generated_token_ids.tolist()) if tok_id == tokenizer.eos_token_id]
-            if eos_positions:
-                eos_position = eos_positions[0]  # First EOS position
-        
-        # Decode with skipping special tokens for final output
-        generated_text = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=False,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id
+            )
 
-        # Determine stop reason
-        new_tokens = len(generated_token_ids)
-        if new_tokens >= max_new_tokens:
-            stop_reason = "max_new_tokens"
-        elif eos_was_generated:
-            stop_reason = f"eos_token (at position {eos_position})"
-        else:
-            stop_reason = "unknown"
+        # 4. Decode and Process Results
+        input_len = inputs.input_ids.shape[1]
+        generated_tokens = outputs[:, input_len:]
+        decoded_texts = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
 
-        parser_result, extracted_answers = process_results(correct_answer, generated_text)
-        gt_extracted, sol_extracted = [parse_digits(ans) for ans in extracted_answers]
+        # Calculate the starting index for this batch relative to the total dataset
+        batch_start_index = pbar.n
+        for i, generated_text in enumerate(decoded_texts):
+            global_idx = batch_start_index + i + 1
+            correct_answer = batch_answers[i]
+            question = batch[i]["question"]
 
-        is_correct = bool(parser_result)
+            parser_result, extracted_answers = process_results(correct_answer, generated_text)
+            gt_extracted, sol_extracted = [parse_digits(ans) for ans in extracted_answers]
 
-        if is_correct:
-            correct += 1
+            is_correct = bool(parser_result)
+            if is_correct:
+                correct += 1
         
-        results.append({
-            "question": question,
-            "correct_answer": correct_answer,
-            "generated": generated_text,
-            "gt_extracted": gt_extracted,
-            "sol_extracted": sol_extracted,
-            "correct": is_correct,
-        })
+            results.append({
+                "question": question,
+                "correct_answer": correct_answer,
+                "generated": generated_text,
+                "gt_extracted": gt_extracted,
+                "sol_extracted": sol_extracted,
+                "correct": is_correct,
+            })
         
-        _log(f"\n--- Question {i+1} ---")
-        _log(f"Question: {question}")
-        _log(f"Stop reason: {stop_reason}; new_tokens: {new_tokens}/{max_new_tokens}")
-        _log(f"EOS detected: {eos_was_generated}")
-        
-        log_ready_generated_text = generated_text.replace("\n", "\n\t").strip()
-        log_ready_correct_answer = correct_answer.replace("\n", "\n\t").strip()
-        _log(f"Generated Answer:\n\t{log_ready_generated_text}")
-        _log(f"Correct Answer (full):\n\t{log_ready_correct_answer}")
-        
-        _log(f"Extracted -> GT: {gt_extracted} | Sol: {sol_extracted}")
-        _log(f"Result: {'[CORRECT]' if is_correct else '[INCORRECT]'}")
+            _log(f"\n--- Question {global_idx} ---")
+            _log(f"Question: {question}")
 
-        pbar.set_postfix({
-            "Correct": correct,
-            "Total": i + 1,
-            "Accuracy (%)": f"{(correct / (i + 1) * 100):.2f}",
-        })
-    
+            log_ready_generated_text = generated_text.replace("\n", "\n\t").strip()
+            log_ready_correct_answer = correct_answer.replace("\n", "\n\t").strip()
+            _log(f"Generated Answer:\n\t{log_ready_generated_text}")
+            _log(f"Correct Answer (full):\n\t{log_ready_correct_answer}")
+
+            _log(f"Extracted -> GT: {gt_extracted} | Sol: {sol_extracted}")
+            _log(f"Result: {'[CORRECT]' if is_correct else '[INCORRECT]'}")
+
+            pbar.set_postfix({
+                "Correct": correct,
+                "Total": global_idx,
+                "Accuracy (%)": f"{(correct / (global_idx) * 100):.2f}",
+            })
+
+        pbar.update(len(batch))
+
     accuracy = correct / len(results) * 100
     _log(f"\n{'='*60}")
     _log(f"ACCURACY: {accuracy:.2f}% ({correct}/{len(results)})")
@@ -228,6 +223,9 @@ def compare_models(base_model: str, trained_model: str, max_samples: int = 10, t
     
     return comparison
 
+def get_batch(data, batch_size):
+    for i in range(0, len(data), batch_size):
+        yield data[i:i + batch_size]
 
 def main():
     parser = argparse.ArgumentParser(description="Test and compare models")
@@ -277,6 +275,12 @@ def main():
         default=1024,
         help="Maximum new tokens to generate",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=256,
+        help="Testing batch size",
+    )
     
     args = parser.parse_args()
     
@@ -296,6 +300,7 @@ def main():
             max_new_tokens=args.max_new_tokens,
             log_dir=args.log_dir,
             test_all=test_all,
+            batch_size=args.batch_size,
         )
     else:
         # Default: test trained model
@@ -305,6 +310,7 @@ def main():
             max_new_tokens=args.max_new_tokens,
             log_dir=args.log_dir,
             test_all=test_all,
+            batch_size=args.batch_size,
         )
 
 

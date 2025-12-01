@@ -23,6 +23,18 @@
 #   - Default: 32 (optimized for A100 80GB)
 #   - Can be overridden with TEST_BATCH_SIZE environment variable
 #   - For smaller GPUs, reduce to 16 or 8
+#
+# Auto-Upload Logs:
+#   - Set AUTO_UPLOAD_LOGS_METHOD environment variable to enable auto-upload
+#   - Supported methods: email, gdrive, s3, hf, wandb, webhook
+#   - Method-specific environment variables (same as training script):
+#     - Email: AUTO_UPLOAD_EMAIL_TO (required), EMAIL_FROM, SMTP_PASSWORD
+#     - Google Drive: AUTO_UPLOAD_GDRIVE_FOLDER_ID
+#     - S3: AUTO_UPLOAD_S3_BUCKET, AUTO_UPLOAD_S3_PREFIX (optional)
+#     - Hugging Face: AUTO_UPLOAD_HF_REPO_ID
+#     - W&B: AUTO_UPLOAD_WANDB_PROJECT, AUTO_UPLOAD_WANDB_RUN_NAME (optional)
+#     - Webhook: AUTO_UPLOAD_WEBHOOK_URL, AUTO_UPLOAD_WEBHOOK_API_KEY (optional)
+#   - Example: AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=user@example.com bash test_full_dataset.sh
 
 set -e
 
@@ -150,6 +162,49 @@ else
     echo "Check log file in /workspace/outputs/grpo/test_logs/ for details."
 fi
 echo "=================================================================================="
+
+# Auto-upload logs if configured (same as training script)
+if [ -n "$AUTO_UPLOAD_LOGS_METHOD" ]; then
+    # Normalize method to lowercase (handle EMAIL -> email, etc.)
+    UPLOAD_METHOD=$(echo "$AUTO_UPLOAD_LOGS_METHOD" | tr '[:upper:]' '[:lower:]')
+    
+    echo ""
+    echo "=========================================="
+    echo "📤 Auto-uploading test logs via $UPLOAD_METHOD..."
+    echo "=========================================="
+    
+    UPLOAD_SCRIPT="examples/cloud_gsm8k/upload_logs.py"
+    UPLOAD_CMD="python3 $UPLOAD_SCRIPT --log-dir /workspace/outputs/grpo/test_logs --method $UPLOAD_METHOD --latest-only"
+    
+    # Add method-specific arguments from environment
+    if [ "$UPLOAD_METHOD" = "email" ] && [ -n "$AUTO_UPLOAD_EMAIL_TO" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --email-to $AUTO_UPLOAD_EMAIL_TO"
+    elif [ "$UPLOAD_METHOD" = "gdrive" ] && [ -n "$AUTO_UPLOAD_GDRIVE_FOLDER_ID" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --gdrive-folder-id $AUTO_UPLOAD_GDRIVE_FOLDER_ID"
+    elif [ "$UPLOAD_METHOD" = "s3" ] && [ -n "$AUTO_UPLOAD_S3_BUCKET" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --s3-bucket $AUTO_UPLOAD_S3_BUCKET"
+        if [ -n "$AUTO_UPLOAD_S3_PREFIX" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD --s3-prefix $AUTO_UPLOAD_S3_PREFIX"
+        fi
+    elif [ "$UPLOAD_METHOD" = "hf" ] && [ -n "$AUTO_UPLOAD_HF_REPO_ID" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --hf-repo-id $AUTO_UPLOAD_HF_REPO_ID"
+    elif [ "$UPLOAD_METHOD" = "wandb" ]; then
+        if [ -n "$AUTO_UPLOAD_WANDB_PROJECT" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD --wandb-project $AUTO_UPLOAD_WANDB_PROJECT"
+        fi
+        if [ -n "$AUTO_UPLOAD_WANDB_RUN_NAME" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD --wandb-run-name $AUTO_UPLOAD_WANDB_RUN_NAME"
+        fi
+    elif [ "$UPLOAD_METHOD" = "webhook" ] && [ -n "$AUTO_UPLOAD_WEBHOOK_URL" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --webhook-url $AUTO_UPLOAD_WEBHOOK_URL"
+        if [ -n "$AUTO_UPLOAD_WEBHOOK_API_KEY" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD --webhook-api-key $AUTO_UPLOAD_WEBHOOK_API_KEY"
+        fi
+    fi
+    
+    eval $UPLOAD_CMD || echo "⚠️  Log upload failed, but continuing..."
+    echo "=========================================="
+fi
 
 exit $TEST_EXIT_CODE
 

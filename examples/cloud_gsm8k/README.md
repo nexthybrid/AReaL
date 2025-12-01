@@ -108,12 +108,14 @@ bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5 
 - `test_full_dataset.sh` - **Full dataset test script** - Test trained model on all 1319 GSM8K test samples
   - Automatically extracts checkpoint path from training logs
   - Optimized batch size (32) for A100 80GB GPUs
+  - **Auto-upload support**: Same as training script - automatically uploads test logs after completion
   - Usage: `bash examples/cloud_gsm8k/test_full_dataset.sh [checkpoint_path] [log_file]`
   - Examples:
     - `bash examples/cloud_gsm8k/test_full_dataset.sh` (auto-detect latest checkpoint)
     - `bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt` (extract from log)
     - `bash examples/cloud_gsm8k/test_full_dataset.sh /path/to/checkpoint` (use specific checkpoint)
   - Batch size can be overridden: `TEST_BATCH_SIZE=48 bash examples/cloud_gsm8k/test_full_dataset.sh`
+  - Auto-upload: Set `AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=user@example.com` (same env vars as training script)
 
 ### Other Documentation
 - `CHECKPOINT_SAVING_FIX.md` - Checkpoint saving configuration fixes

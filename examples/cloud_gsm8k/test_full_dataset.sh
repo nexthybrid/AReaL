@@ -2,25 +2,30 @@
 # Script to test trained model on full GSM8K dataset (1319 samples)
 # 
 # Usage:
-#   bash examples/cloud_gsm8k/test_full_dataset.sh [checkpoint_path] [log_file]
+#   bash examples/cloud_gsm8k/test_full_dataset.sh [checkpoint_path] [log_file] [--test-intervals]
 #
 #   checkpoint_path: Optional. Full path to model checkpoint directory OR "baseline" to test base model.
 #                    If "baseline", tests Qwen/Qwen2.5-0.5B-Instruct on full dataset.
 #                    If not provided, will try to extract from log_file or find latest checkpoint.
 #   log_file: Optional. Path to training log file to extract checkpoint path from.
 #             If not provided, will try to find latest checkpoint automatically.
+#   --test-intervals: Optional flag. If provided, tests checkpoints at 5-epoch intervals (5, 10, 15, etc.)
+#                    instead of just the latest checkpoint. All interval test logs will be uploaded.
 #
 # Examples:
 #   # Test baseline model on full dataset
 #   bash examples/cloud_gsm8k/test_full_dataset.sh baseline
 #
-#   # Auto-detect from latest checkpoint
+#   # Auto-detect from latest checkpoint (test only latest)
 #   bash examples/cloud_gsm8k/test_full_dataset.sh
 #
-#   # Extract from specific log file
+#   # Test latest checkpoint from log file
 #   bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt
 #
-#   # Use specific checkpoint
+#   # Test at 5-epoch intervals (5, 10, 15, etc.)
+#   bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt --test-intervals
+#
+#   # Use specific checkpoint (test only that checkpoint)
 #   bash examples/cloud_gsm8k/test_full_dataset.sh /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-2gpu-1000samples-v3-conservative/trial_20251201_091022/default/epoch14epochstep249globalstep3749
 #
 # Batch Size:
@@ -49,10 +54,19 @@ cd "$PROJECT_ROOT"
 # Configuration
 CHECKPOINT_PATH="${1:-}"
 LOG_FILE="${2:-}"
+TEST_INTERVALS=false
+# Check for --test-intervals flag (can be in any position)
+for arg in "$@"; do
+    if [ "$arg" = "--test-intervals" ]; then
+        TEST_INTERVALS=true
+        break
+    fi
+done
 BATCH_SIZE="${TEST_BATCH_SIZE:-32}"  # Optimized for A100 80GB - can handle 32-64 easily
 MAX_NEW_TOKENS=512
 IS_BASELINE=false
 MODEL_NAME=""
+INTERVAL_LOG_FILES=()  # Array to store log files from interval testing
 
 # Check if checkpoint path is provided
 if [ -n "$CHECKPOINT_PATH" ]; then
@@ -163,31 +177,197 @@ if [ -z "$MODEL_NAME" ]; then
     fi
 fi
 
-echo ""
-echo "Starting full dataset test..."
-echo "This may take 10-30 minutes depending on GPU and batch size..."
-echo ""
+# Function to parse epoch from checkpoint directory name
+# Format: epoch{epoch}epochstep{step}globalstep{globalstep}
+parse_epoch() {
+    local dirname=$(basename "$1")
+    if [[ "$dirname" =~ epoch([0-9]+)epochstep ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo ""
+    fi
+}
 
-# Run test on full dataset
-python3 "$TEST_SCRIPT" \
-    --model-path "$MODEL_PATH" \
-    --all \
-    --max-new-tokens "$MAX_NEW_TOKENS" \
-    --model-name "$MODEL_NAME" \
-    --batch-size "$BATCH_SIZE"
+# Function to find checkpoints at 5-epoch intervals
+# Returns checkpoints at epochs 5, 10, 15, etc., plus the latest checkpoint
+find_interval_checkpoints() {
+    local checkpoint_dir="$1"
+    local checkpoints_dir=$(dirname "$checkpoint_dir")
+    
+    if [ ! -d "$checkpoints_dir" ]; then
+        echo "ERROR: Checkpoint directory not found: $checkpoints_dir" >&2
+        return 1
+    fi
+    
+    # Find all checkpoints and extract epochs, store as epoch:path pairs
+    local all_checkpoints=()
+    local max_epoch=0
+    
+    for checkpoint in "$checkpoints_dir"/epoch*; do
+        if [ -d "$checkpoint" ] && [ -f "$checkpoint/config.json" ]; then
+            local epoch=$(parse_epoch "$checkpoint")
+            if [ -n "$epoch" ]; then
+                all_checkpoints+=("${epoch}:${checkpoint}")
+                if [ "$epoch" -gt "$max_epoch" ]; then
+                    max_epoch=$epoch
+                fi
+            fi
+        fi
+    done
+    
+    if [ "$max_epoch" -eq 0 ]; then
+        return 1
+    fi
+    
+    # Filter to 5-epoch intervals (5, 10, 15, etc.) up to max_epoch
+    local interval_checkpoints=()
+    local epoch=5
+    while [ "$epoch" -le "$max_epoch" ]; do
+        # Find checkpoint for this epoch
+        for ckpt_pair in "${all_checkpoints[@]}"; do
+            local ckpt_epoch="${ckpt_pair%%:*}"
+            local ckpt_path="${ckpt_pair#*:}"
+            if [ "$ckpt_epoch" -eq "$epoch" ]; then
+                interval_checkpoints+=("$ckpt_path")
+                break
+            fi
+        done
+        epoch=$((epoch + 5))
+    done
+    
+    # Also include the latest checkpoint (max_epoch) if not already included
+    if [ "$max_epoch" -gt 0 ] && [ $((max_epoch % 5)) -ne 0 ]; then
+        # Find checkpoint for max_epoch
+        for ckpt_pair in "${all_checkpoints[@]}"; do
+            local ckpt_epoch="${ckpt_pair%%:*}"
+            local ckpt_path="${ckpt_pair#*:}"
+            if [ "$ckpt_epoch" -eq "$max_epoch" ]; then
+                # Check if not already in interval_checkpoints
+                local found=false
+                for existing in "${interval_checkpoints[@]}"; do
+                    if [ "$existing" = "$ckpt_path" ]; then
+                        found=true
+                        break
+                    fi
+                done
+                if [ "$found" = "false" ]; then
+                    interval_checkpoints+=("$ckpt_path")
+                fi
+                break
+            fi
+        done
+    fi
+    
+    # Return checkpoints (print to stdout for capture)
+    printf '%s\n' "${interval_checkpoints[@]}"
+}
 
-TEST_EXIT_CODE=$?
-
-echo ""
-echo "=================================================================================="
-if [ $TEST_EXIT_CODE -eq 0 ]; then
-    echo "✅ Full dataset test completed successfully!"
-    echo "Check log file in /workspace/outputs/grpo/test_logs/ for detailed results."
-else
-    echo "⚠️ Test completed with exit code: $TEST_EXIT_CODE"
-    echo "Check log file in /workspace/outputs/grpo/test_logs/ for details."
+# Determine if we should test intervals
+if [ "$TEST_INTERVALS" = "true" ] && [ "$IS_BASELINE" != "true" ] && [[ "$MODEL_PATH" == "/"* ]]; then
+    echo ""
+    echo "=================================================================================="
+    echo "INTERVAL TESTING MODE: Testing at 5-epoch intervals"
+    echo "=================================================================================="
+    
+    # Find all checkpoints at 5-epoch intervals
+    # Use mapfile to properly capture array from function output
+    mapfile -t INTERVAL_CHECKPOINTS < <(find_interval_checkpoints "$MODEL_PATH" 2>&1)
+    
+    if [ ${#INTERVAL_CHECKPOINTS[@]} -eq 0 ]; then
+        echo "WARNING: No checkpoints found at 5-epoch intervals. Falling back to latest checkpoint."
+        TEST_INTERVALS=false
+    else
+        echo "Found ${#INTERVAL_CHECKPOINTS[@]} checkpoint(s) at 5-epoch intervals:"
+        for ckpt in "${INTERVAL_CHECKPOINTS[@]}"; do
+            epoch=$(parse_epoch "$ckpt")
+            echo "  - Epoch $epoch: $ckpt"
+        done
+        echo ""
+    fi
 fi
-echo "=================================================================================="
+
+# Run tests
+if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
+    echo "Starting interval testing (${#INTERVAL_CHECKPOINTS[@]} checkpoint(s))..."
+    echo "This may take ${#INTERVAL_CHECKPOINTS[@]}x longer than single checkpoint test..."
+    echo ""
+    
+    TEST_EXIT_CODE=0
+    for ckpt in "${INTERVAL_CHECKPOINTS[@]}"; do
+        epoch=$(parse_epoch "$ckpt")
+        epoch_model_name="${MODEL_NAME}_epoch${epoch}"
+        
+        echo ""
+        echo "=================================================================================="
+        echo "Testing Epoch $epoch checkpoint"
+        echo "=================================================================================="
+        echo "Checkpoint: $ckpt"
+        echo ""
+        
+        # Run test
+        python3 "$TEST_SCRIPT" \
+            --model-path "$ckpt" \
+            --all \
+            --max-new-tokens "$MAX_NEW_TOKENS" \
+            --model-name "$epoch_model_name" \
+            --batch-size "$BATCH_SIZE"
+        
+        local ckpt_exit_code=$?
+        if [ $ckpt_exit_code -ne 0 ]; then
+            TEST_EXIT_CODE=$ckpt_exit_code
+            echo "⚠️ Warning: Test for epoch $epoch failed with exit code $ckpt_exit_code"
+        fi
+        
+        # Find the log file for this checkpoint (most recent matching the model name)
+        # Convert model name to lowercase for matching
+        local model_name_lower=$(echo "$epoch_model_name" | tr '[:upper:]' '[:lower:]')
+        local log_file=$(ls -t /workspace/outputs/grpo/test_logs/test_model_${model_name_lower}_*.log 2>/dev/null | head -1)
+        if [ -n "$log_file" ] && [ -f "$log_file" ]; then
+            INTERVAL_LOG_FILES+=("$log_file")
+            echo "Log file saved: $log_file"
+        else
+            echo "⚠️  Warning: Could not find log file for epoch $epoch"
+        fi
+    done
+    
+    echo ""
+    echo "=================================================================================="
+    if [ $TEST_EXIT_CODE -eq 0 ]; then
+        echo "✅ Interval testing completed successfully!"
+        echo "Tested ${#INTERVAL_CHECKPOINTS[@]} checkpoint(s) at 5-epoch intervals"
+    else
+        echo "⚠️ Interval testing completed with some failures"
+    fi
+    echo "Log files saved in /workspace/outputs/grpo/test_logs/"
+    echo "=================================================================================="
+else
+    # Single checkpoint test (original behavior)
+    echo ""
+    echo "Starting full dataset test..."
+    echo "This may take 10-30 minutes depending on GPU and batch size..."
+    echo ""
+    
+    # Run test on full dataset
+    python3 "$TEST_SCRIPT" \
+        --model-path "$MODEL_PATH" \
+        --all \
+        --max-new-tokens "$MAX_NEW_TOKENS" \
+        --model-name "$MODEL_NAME" \
+        --batch-size "$BATCH_SIZE"
+    
+    TEST_EXIT_CODE=$?
+    
+    echo ""
+    echo "=================================================================================="
+    if [ $TEST_EXIT_CODE -eq 0 ]; then
+        echo "✅ Full dataset test completed successfully!"
+        echo "Check log file in /workspace/outputs/grpo/test_logs/ for detailed results."
+    else
+        echo "⚠️ Test completed with exit code: $TEST_EXIT_CODE"
+        echo "Check log file in /workspace/outputs/grpo/test_logs/ for details."
+    fi
+    echo "=================================================================================="
+fi
 
 # Auto-upload logs if configured (same as training script)
 if [ -n "$AUTO_UPLOAD_LOGS_METHOD" ]; then
@@ -200,7 +380,20 @@ if [ -n "$AUTO_UPLOAD_LOGS_METHOD" ]; then
     echo "=========================================="
     
     UPLOAD_SCRIPT="examples/cloud_gsm8k/upload_logs.py"
-    UPLOAD_CMD="python3 $UPLOAD_SCRIPT --log-dir /workspace/outputs/grpo/test_logs --method $UPLOAD_METHOD --latest-only"
+    
+    # If interval testing was used, upload all interval logs; otherwise just latest
+    if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_LOG_FILES[@]} -gt 0 ]; then
+        echo "Uploading ${#INTERVAL_LOG_FILES[@]} interval test log(s)..."
+        # Upload all interval log files - build command with all log files
+        UPLOAD_CMD="python3 $UPLOAD_SCRIPT --log-dir /workspace/outputs/grpo/test_logs --method $UPLOAD_METHOD --log-files"
+        for log_file in "${INTERVAL_LOG_FILES[@]}"; do
+            if [ -f "$log_file" ]; then
+                UPLOAD_CMD="$UPLOAD_CMD $log_file"
+            fi
+        done
+    else
+        UPLOAD_CMD="python3 $UPLOAD_SCRIPT --log-dir /workspace/outputs/grpo/test_logs --method $UPLOAD_METHOD --latest-only"
+    fi
     
     # Add method-specific arguments from environment
     if [ "$UPLOAD_METHOD" = "email" ] && [ -n "$AUTO_UPLOAD_EMAIL_TO" ]; then

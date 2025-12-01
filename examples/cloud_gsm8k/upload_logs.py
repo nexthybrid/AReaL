@@ -369,6 +369,7 @@ def main():
     # Filter options
     parser.add_argument("--pattern", type=str, default="*.log", help="File pattern to match (default: *.log)")
     parser.add_argument("--latest-only", action="store_true", help="Only upload the latest log files (baseline and trained)")
+    parser.add_argument("--log-files", type=str, nargs="+", help="Specific log files to upload (absolute or relative to log-dir)")
     
     args = parser.parse_args()
     
@@ -378,7 +379,21 @@ def main():
         print(f"❌ Error: Log directory does not exist: {log_dir}")
         return 1
     
-    if args.latest_only:
+    if args.log_files:
+        # Use specific log files provided
+        log_files = []
+        for log_file in args.log_files:
+            log_path = Path(log_file)
+            if not log_path.is_absolute():
+                log_path = log_dir / log_path
+            if log_path.exists():
+                log_files.append(str(log_path))
+            else:
+                print(f"⚠️  Warning: Log file not found: {log_path}")
+        if not log_files:
+            print("❌ Error: No valid log files found from --log-files")
+            return 1
+    elif args.latest_only:
         # Find latest baseline and trained logs
         # Support both GRPO (test_model_*) and reasoning (test_reasoning_*) log patterns
         baseline_logs = (

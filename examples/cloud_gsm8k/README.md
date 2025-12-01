@@ -115,14 +115,17 @@ bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5 
   - Automatically extracts checkpoint path from training logs
   - Optimized batch size (32) for A100 80GB GPUs
   - **Auto-upload support**: Same as training script - automatically uploads test logs after completion
-  - Usage: `bash examples/cloud_gsm8k/test_full_dataset.sh [checkpoint_path] [log_file]`
+  - **Interval testing**: Test checkpoints at 5-epoch intervals (5, 10, 15, etc.) with `--test-intervals` flag
+  - Usage: `bash examples/cloud_gsm8k/test_full_dataset.sh [checkpoint_path] [log_file] [--test-intervals]`
   - Examples:
     - `bash examples/cloud_gsm8k/test_full_dataset.sh baseline` (test baseline model Qwen/Qwen2.5-0.5B-Instruct)
     - `bash examples/cloud_gsm8k/test_full_dataset.sh` (auto-detect latest checkpoint)
     - `bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt` (extract from log)
+    - `bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt --test-intervals` (test at 5-epoch intervals)
     - `bash examples/cloud_gsm8k/test_full_dataset.sh /path/to/checkpoint` (use specific checkpoint)
   - Batch size can be overridden: `TEST_BATCH_SIZE=48 bash examples/cloud_gsm8k/test_full_dataset.sh`
   - Auto-upload: Set `AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=user@example.com` (same env vars as training script)
+    - With interval testing: All interval test logs will be uploaded
   - **Alternative direct call**: `python3 examples/cloud_gsm8k/test_trained_model_cloud.py --model-path Qwen/Qwen2.5-0.5B-Instruct --all --batch-size 32`
 
 ### Other Documentation

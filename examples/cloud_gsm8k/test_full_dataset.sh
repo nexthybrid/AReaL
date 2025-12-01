@@ -52,14 +52,26 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 # Configuration
-CHECKPOINT_PATH="${1:-}"
-LOG_FILE="${2:-}"
 TEST_INTERVALS=false
-# Check for --test-intervals flag (can be in any position)
+# Check for --test-intervals flag FIRST (before processing positional args)
+# This allows the flag to be in any position
 for arg in "$@"; do
     if [ "$arg" = "--test-intervals" ]; then
         TEST_INTERVALS=true
         break
+    fi
+done
+
+# Now process positional arguments, skipping --test-intervals
+CHECKPOINT_PATH=""
+LOG_FILE=""
+for arg in "$@"; do
+    if [ "$arg" != "--test-intervals" ]; then
+        if [ -z "$CHECKPOINT_PATH" ]; then
+            CHECKPOINT_PATH="$arg"
+        elif [ -z "$LOG_FILE" ]; then
+            LOG_FILE="$arg"
+        fi
     fi
 done
 BATCH_SIZE="${TEST_BATCH_SIZE:-32}"  # Optimized for A100 80GB - can handle 32-64 easily

@@ -2,6 +2,17 @@
 
 RunPod is the most economical cloud GPU platform. This complete guide covers everything you need.
 
+## Quick Start (TL;DR)
+
+If you're in a hurry, here's the fastest way to get started:
+
+1. **Create RunPod account**: https://runpod.io
+2. **Create network volume**: Name `areal-outputs`, Size 50GB
+3. **Deploy pod using template** (see Step 3 below)
+4. **Training starts automatically!**
+
+For detailed instructions, continue reading below.
+
 ## Why RunPod?
 
 - 💰 **Best Pricing**: RTX 4090 at $0.29/hour (vs $0.40+ on other platforms)
@@ -194,7 +205,64 @@ bash examples/cloud_gsm8k/run_training_cloud.sh 3hour
 
 # Full training (all samples, 5 epochs) - takes days!
 bash examples/cloud_gsm8k/run_training_cloud.sh full
+
+# 2-GPU training configs (requires 2x A100 GPUs):
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6  # Override to 6 epochs
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_1000samples_2GPUs_v3_conservative 5  # Override to 5 epochs
+
+# 💡 Tip: Use epoch override to experiment without modifying YAML files!
+#   Format: bash run_training_cloud.sh [config_name] [epochs_override]
+#   Example: bash run_training_cloud.sh standard_2000samples_2GPUs_v3 6
 ```
+
+## Step 6.5: Epoch Override Feature (Optional)
+
+**💡 New Feature**: You can now override the number of training epochs without modifying YAML files!
+
+### Why Use Epoch Override?
+
+- ✅ **No git push needed**: Change epochs without modifying config files
+- ✅ **Quick experimentation**: Test different epoch counts easily
+- ✅ **No YAML editing**: Override directly from command line
+
+### Usage
+
+```bash
+# Normal usage (uses epochs from YAML file)
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3
+
+# Override to 6 epochs (ignores YAML setting)
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6
+
+# Override to 5 epochs
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5
+
+# Works with any config preset or YAML file path
+bash examples/cloud_gsm8k/run_training_cloud.sh examples/cloud_gsm8k/gsm8k_grpo_2000samples_2GPUs_v3.yaml 6
+```
+
+### Examples
+
+**Testing more epochs for better accuracy:**
+```bash
+# Original config has 4 epochs, test with 6 epochs
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6
+```
+
+**Quick test with fewer epochs:**
+```bash
+# Test with 3 epochs instead of default 4
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 3
+```
+
+### Validation
+
+The script validates that the epoch override is a positive integer:
+- ✅ Valid: `5`, `6`, `10`
+- ❌ Invalid: `0`, `-1`, `abc`, `5.5`
+
+If invalid, the script will show an error and exit.
 
 ## Step 7: Monitor Training
 
@@ -247,66 +315,239 @@ aws s3 sync /workspace/outputs s3://your-bucket/areal-outputs/
 gsutil -m cp -r /workspace/outputs gs://your-bucket/areal-outputs/
 ```
 
-## Step 9: Stop Pod (Save Costs!)
+## Step 9: Container Stop Behavior and Completion Markers
 
-**⚠️ CRITICAL**: RunPod will **automatically restart** containers when they exit by default. This means after training completes, the container exits, RunPod restarts it, and the script runs again - **wasting money!**
+### ⚠️ Critical Issue: Container Auto-Restart Loop
 
-### Step 9.1: Disable Auto-Restart (MUST DO!)
+**Problem**: RunPod has a default behavior where containers **automatically restart** when they exit. This means:
 
-**Before deploying pod:**
-1. In pod/template settings, find **"Restart Policy"** or **"Auto-Restart"**
-2. Set it to **"Never"** or **"On Failure Only"**
-3. This prevents the container from restarting when training completes
+1. ✅ Training script runs and completes
+2. ✅ Container exits (normal behavior)
+3. ❌ **RunPod automatically restarts the container**
+4. ❌ **Script runs again** (wasting money!)
 
-**Why this is critical:**
-- Without this, container restarts after training → Script runs again → Wastes money!
-- With this, container exits after training → Pod stops → No charges!
+This can create an **infinite loop** that wastes money!
 
-### Step 9.2: Verify Checkpoints Before Stopping
+### Solution 1: Disable Auto-Restart (Recommended)
 
-```bash
-# Inside pod, verify checkpoints exist on the volume
-ls -lh /workspace/outputs/grpo/checkpoints/
+**In RunPod Pod Settings:**
+1. Go to your pod settings
+2. Find **"Restart Policy"** or **"Auto-Restart"**
+3. Set it to **"Never"** or **"On Failure Only"**
+4. This prevents the container from restarting when it exits normally
 
-# Should show your experiment directories with checkpoints
-# Example:
-# gsm8k-grpo-cloud-1hour/
-#   └── trial0/
-#       └── checkpoint_epoch_1_step_63/
-#           ├── actor.pt
-#           ├── optimizer.pt
-#           └── ...
-```
+### Solution 2: Completion Marker Protection (Implemented)
 
-### Step 9.3: Stop Pod After Training
+The training script includes a **completion marker** system:
 
-**After training completes:**
-1. **Go to "Pods"** in RunPod dashboard: https://www.runpod.io/console/pods
-2. **Find your pod** (should show "Running" status)
-3. **Click "Stop"** button
-4. **Confirm** the stop action
+1. **At start**: Script checks for completion markers
+   - If found → Script exits immediately (prevents re-running)
+   - If not found → Training proceeds normally
 
-**✅ Your checkpoints are safe in the network volume!** They will persist even after the pod stops.
+2. **At end**: Script creates a completion marker
+   - Marker file: `/workspace/outputs/training_completed_YYYYMMDD_HHMMSS.marker`
+   - Contains: Completion timestamp, experiment name, trial name
 
-**✅ Test logs are also saved to the network volume!** After training completes, the test script automatically runs and saves results to `/workspace/outputs/grpo/test_logs/`. You can access these logs from the RunPod dashboard (Volumes → areal-outputs → test_logs) without starting the pod again!
-
-### Step 9.4: Completion Marker Protection
-
-The training script includes **completion marker** protection:
-- **At start**: Checks for completion markers → If found, exits immediately (prevents re-running)
-- **At end**: Creates completion marker → Marks training as complete
-
-**If container restarts** (despite disabling auto-restart):
+**If container restarts:**
 - Script checks for marker → Found → Exits immediately
 - No training runs → No money wasted!
 
-**See `RUNPOD_STOP_BEHAVIOR.md` for detailed explanation of container lifecycle and protection mechanisms.**
+### Solution 3: Manual Pod Stop
 
-## Step 10: Resuming Training from Checkpoint
+**After training completes:**
+1. Go to RunPod dashboard: https://www.runpod.io/console/pods
+2. Find your pod
+3. Click **"Stop"** button
+4. Pod stops → No more charges
+
+**⚠️ Important**: Do this **immediately** after training completes to avoid charges!
+
+
+## Step 10: Accessing Test Logs and Auto-Upload
+
+### Where Test Logs Are Saved
+
+All test logs are saved to:
+```
+/workspace/outputs/grpo/test_logs/
+```
+
+This directory is on the **network volume** (`areal-outputs`), which means:
+- ✅ Logs persist after the pod stops
+- ✅ You can access them from RunPod dashboard
+- ✅ You can download them without starting a new pod
+- ✅ No need to keep the pod running just to read results
+
+### Log File Names
+
+- **Reasoning Model Tests**: `test_reasoning_baseline_YYYYMMDD_HHMMSS.log` and `test_reasoning_trained_YYYYMMDD_HHMMSS.log`
+- **Regular Model Tests**: `test_model_baseline_YYYYMMDD_HHMMSS.log` and `test_model_trained_YYYYMMDD_HHMMSS.log`
+
+### Accessing Logs
+
+**Method 1: RunPod Dashboard (Easiest)**
+1. Go to RunPod Dashboard: https://www.runpod.io/console/volumes
+2. Find your volume: `areal-outputs`
+3. Click on the volume to view contents
+4. Navigate to: `grpo/test_logs/`
+5. Download the log files you want
+
+**Method 2: Start a Temporary Pod**
+If you need to access logs via command line:
+```bash
+# Inside pod
+ls -lh /workspace/outputs/grpo/test_logs/
+cat /workspace/outputs/grpo/test_logs/test_model_trained_YYYYMMDD_HHMMSS.log
+```
+
+### What's in the Logs
+
+Each log file contains:
+- Model path and configuration
+- Test dataset size
+- Per-sample results (question, generated answer, correct answer, correctness)
+- Final accuracy percentage
+- Detailed output for first few samples and incorrect answers
+
+### Auto-Upload Test Logs
+
+After training and testing complete, the system can automatically upload the latest test logs to:
+- 📧 **Email** (SMTP)
+- ☁️ **Google Drive** (via rclone)
+- ☁️ **AWS S3**
+- 🤗 **Hugging Face Hub**
+- 📊 **Weights & Biases** (as artifacts)
+- 🌐 **Generic webhook/API endpoint**
+
+#### Quick Setup: Email (Easiest)
+
+Set these environment variables in your RunPod pod:
+
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=email
+export AUTO_UPLOAD_EMAIL_TO=your-email@example.com
+export EMAIL_FROM=your-sender@example.com
+export SMTP_PASSWORD=your-app-password  # Gmail: use App Password, not regular password
+```
+
+**For Gmail:**
+1. Enable 2-factor authentication
+2. Generate an App Password: https://myaccount.google.com/apppasswords
+3. Use the App Password as `SMTP_PASSWORD`
+
+#### Other Upload Methods
+
+**Google Drive:**
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=gdrive
+export AUTO_UPLOAD_GDRIVE_FOLDER_ID=YOUR_FOLDER_ID
+# Requires rclone setup: curl https://rclone.org/install.sh | sudo bash && rclone config
+```
+
+**AWS S3:**
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=s3
+export AUTO_UPLOAD_S3_BUCKET=my-bucket-name
+export AUTO_UPLOAD_S3_PREFIX=areal-training-logs
+export AWS_ACCESS_KEY_ID=your-access-key
+export AWS_SECRET_ACCESS_KEY=your-secret-key
+```
+
+**Hugging Face Hub:**
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=hf
+export AUTO_UPLOAD_HF_REPO_ID=username/dataset-name
+export HF_TOKEN=your-hf-token
+```
+
+**Weights & Biases:**
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=wandb
+export AUTO_UPLOAD_WANDB_PROJECT=gsm8k-grpo-cloud
+export WANDB_API_KEY=your-wandb-key
+```
+
+#### Setting Environment Variables in RunPod
+
+**Method 1: In RunPod Template Environment Variables**
+1. Go to RunPod Templates
+2. Edit your template
+3. Add environment variables in the "Environment Variables" section
+
+**Method 2: In RunPod Docker Command**
+Add environment variables to your RunPod startup command:
+```bash
+bash -c "export AUTO_UPLOAD_LOGS_METHOD=email && export AUTO_UPLOAD_EMAIL_TO=your@email.com && ... (rest of command)"
+```
+
+#### Manual Upload
+
+You can also manually upload logs after training completes:
+
+```bash
+python3 examples/cloud_gsm8k/upload_logs.py \
+    --log-dir /workspace/outputs/grpo/test_logs \
+    --method email \
+    --email-to your@email.com \
+    --latest-only
+```
+
+## Step 11: Network Volume Size Recommendations
+
+### Recommended Volume Sizes by Training Config
+
+| Training Config | Samples | Epochs | Recommended Size | Minimum Size |
+|----------------|---------|--------|------------------|--------------|
+| Fast/1-hour | 200-500 | 1-2 | **30-40GB** | 20-30GB |
+| 3-hour | 1000 | 3 | **50GB** | 40GB |
+| 2-GPU (1000-2000 samples) | 1000-2000 | 3-4 | **50-60GB** | 40-50GB |
+| Reasoning models | 200-2000 | 1-3 | **50-60GB** | 40-50GB |
+| Multiple runs | - | - | **100GB+** | 80GB |
+
+**Most Common Recommendation**: **50-60GB** covers all single-run scenarios with safety margin.
+
+### Storage Components
+
+1. **Model Checkpoints** (largest component)
+   - Per epoch checkpoints (~1GB per checkpoint for Qwen2.5-0.5B)
+   - Optimizer states
+
+2. **Training Logs** (~2-5GB)
+   - Training statistics
+   - System logs
+
+3. **Test Logs** (~1-3GB)
+   - Full validation test results
+   - Per-sample outputs
+
+4. **Generated Samples** (~2-12GB)
+   - Rollout outputs during training
+   - Longer for reasoning models (up to 1024 tokens)
+
+### Monitoring Volume Usage
+
+```bash
+# Inside pod
+df -h /workspace/outputs
+du -sh /workspace/outputs/grpo/checkpoints/*
+du -sh /workspace/outputs/grpo/logs/*
+```
+
+### Upgrading Volume Size
+
+If you run out of space:
+1. RunPod Dashboard → Volumes
+2. Select your volume → Edit/Resize
+3. Increase size (RunPod allows resizing)
+4. Wait for resize to complete
+
+**Note**: RunPod volumes can be resized, but it's better to start with adequate size to avoid interruptions.
+
+## Step 12: Resuming Training from Checkpoint
 
 When you want to continue training (after pod restart or interruption):
 
-### Step 10.1: Deploy New Pod (or Restart Existing)
+### Step 12.1: Deploy New Pod (or Restart Existing)
 
 1. **Go to "Pods"** → **"Deploy"** (or restart existing pod)
 2. **Use same settings** as before:
@@ -314,7 +555,7 @@ When you want to continue training (after pod restart or interruption):
    - **Same volume mount**: `/workspace/outputs` → `areal-outputs` (CRITICAL!)
    - Same environment variables (WandB API key, etc.)
 
-### Step 10.2: Verify Checkpoint Exists
+### Step 12.2: Verify Checkpoint Exists
 
 ```bash
 # Inside pod, check that checkpoints exist
@@ -325,7 +566,7 @@ ls -lh /workspace/outputs/grpo/checkpoints/
 ls -lh /workspace/outputs/grpo/checkpoints/gsm8k-grpo-cloud-1hour/trial0/
 ```
 
-### Step 10.3: Set Up Repository (If Needed)
+### Step 12.3: Set Up Repository (If Needed)
 
 ```bash
 # Inside pod
@@ -354,7 +595,7 @@ if ! python3 -c "import areal" 2>/dev/null; then
 fi
 ```
 
-### Step 10.4: Resume Training
+### Step 12.4: Resume Training
 
 ```bash
 # Inside pod
@@ -780,4 +1021,11 @@ bash examples/cloud_gsm8k/run_training_cloud.sh 1hour
 6. ✅ Stop pod (save costs!)
 
 Happy training on RunPod! 🚀
+
+---
+
+## Additional Resources
+
+- **Training Learnings**: See `TRAINING_LEARNINGS.md` for detailed guides, GRPO tuning, epoch analysis, and best practices
+- **Main README**: See `README.md` for overview and quick reference
 

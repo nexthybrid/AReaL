@@ -2,7 +2,15 @@
 # Cloud-optimized training script for GRPO
 #
 # Usage:
-#   bash examples/cloud_gsm8k/run_training_cloud.sh [config_name]
+#   bash examples/cloud_gsm8k/run_training_cloud.sh [config_name] [epochs_override]
+#
+#   config_name: Name of the config preset or path to YAML file (default: 1hour)
+#   epochs_override: Optional number of epochs to override YAML setting (e.g., 5, 6)
+#
+# Examples:
+#   bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3
+#   bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6
+#   bash examples/cloud_gsm8k/run_training_cloud.sh examples/cloud_gsm8k/gsm8k_grpo_2000samples_2GPUs_v3.yaml 5
 #
 # Config options:
 #   - fastest: Fastest training (~5-10 min, 20 samples, 1 epoch) - Pipeline testing only
@@ -32,6 +40,7 @@ set -e
 
 # Configuration
 CONFIG_NAME="${1:-1hour}"
+EPOCHS_OVERRIDE="${2:-}"  # Optional: override total_train_epochs from YAML
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
@@ -529,6 +538,9 @@ echo "Training script: $TRAIN_SCRIPT"
 echo "Experiment: $EXPERIMENT_NAME"
 echo "Trial: $TRIAL_NAME"
 echo "GPU: $GPU_NAME ($GPU_MEMORY MB)"
+if [ -n "$EPOCHS_OVERRIDE" ]; then
+    echo "⚠️  Epochs override: $EPOCHS_OVERRIDE (will override YAML setting)"
+fi
 echo "WandB API key: ${WANDB_API_KEY:0:10}..." 
 echo "=========================================="
 echo ""
@@ -546,11 +558,26 @@ if [ "$GPU_COUNT" -eq 4 ]; then
     export CUDA_VISIBLE_DEVICES=3,2,1,0
 fi
 
+# Build training command with optional epoch override
+TRAIN_CMD="python3 -m areal.launcher.local \"$TRAIN_SCRIPT\" \
+    --config \"$CONFIG_FILE\" \
+    experiment_name=\"$EXPERIMENT_NAME\" \
+    trial_name=\"$TRIAL_NAME\""
+
+# Add epoch override if provided
+if [ -n "$EPOCHS_OVERRIDE" ]; then
+    # Validate that it's a positive integer
+    if ! [[ "$EPOCHS_OVERRIDE" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: Invalid epochs override: '$EPOCHS_OVERRIDE'"
+        echo "       Must be a positive integer (e.g., 5, 6, 10)"
+        exit 1
+    fi
+    TRAIN_CMD="$TRAIN_CMD total_train_epochs=$EPOCHS_OVERRIDE"
+    echo "Using epoch override: total_train_epochs=$EPOCHS_OVERRIDE"
+fi
+
 # Run training
-python3 -m areal.launcher.local "$TRAIN_SCRIPT" \
-    --config "$CONFIG_FILE" \
-    experiment_name="$EXPERIMENT_NAME" \
-    trial_name="$TRIAL_NAME"
+eval $TRAIN_CMD
 
 TRAINING_EXIT_CODE=$?
 

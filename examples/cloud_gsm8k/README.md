@@ -33,6 +33,10 @@ bash examples/cloud_gsm8k/run_training_cloud.sh fast      # 20-30 min, any GPU
 bash examples/cloud_gsm8k/run_training_cloud.sh 1hour     # 1-2 hours, any GPU (default)
 bash examples/cloud_gsm8k/run_training_cloud.sh 3hour     # 3-4 hours, any GPU
 bash examples/cloud_gsm8k/run_training_cloud.sh full       # 5 days, REQUIRES H200/H100/A100-80GB
+
+# Optional: Override number of epochs without modifying YAML files
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6  # Use 6 epochs instead of YAML default
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5  # Use 5 epochs instead of YAML default
 ```
 
 **⚠️ Important**: The `full` config requires H200, H100, or A100-80GB (80GB+ memory). The script will automatically validate your GPU and reject full training on smaller GPUs.
@@ -43,20 +47,35 @@ bash examples/cloud_gsm8k/run_training_cloud.sh full       # 5 days, REQUIRES H2
 
 ### Main Training Script
 - `run_training_cloud.sh` - **Main training script** - Use this to start training
-  - Supports: `fast`, `1hour`, `3hour`, `full` configs
+  - Supports: `fast`, `1hour`, `3hour`, `full`, `standard_1000samples_2GPUs`, `standard_2000samples_2GPUs_v3`, etc.
   - Auto-detects GPU type (A40, RTX 5090, H200, etc.) and uses appropriate optimized config
   - Validates GPU requirements for `full` training (requires 80GB+ memory)
-  - Usage: `bash examples/cloud_gsm8k/run_training_cloud.sh [config_name]`
+  - **Epoch override**: Optional second parameter to override epochs without modifying YAML files
+  - Usage: `bash examples/cloud_gsm8k/run_training_cloud.sh [config_name] [epochs_override]`
+  - Examples:
+    - `bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3` (uses YAML epochs)
+    - `bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6` (overrides to 6 epochs)
 
 ### RunPod Documentation
-- `RUNPOD_QUICK_START.md` - ⭐ **Start here for RunPod** - Quick setup guide
-- `RUNPOD_COMPLETE_GUIDE.md` - Complete RunPod guide with troubleshooting
+- `RUNPOD_COMPLETE_GUIDE.md` - ⭐ **Complete RunPod guide** - Setup, troubleshooting, and all procedures
 - `runpod_template.json` - RunPod template configuration (optional)
 
 ### Training Configurations
+
+**Standard GRPO Configs (2x A100 GPUs):**
+- `gsm8k_grpo_1000samples_2GPUs.yaml` - 1000 samples, ~3 hours
+- `gsm8k_grpo_1000samples_2GPUs_v3_conservative.yaml` - 1000 samples, v3 conservative settings, ~3-4 hours
+- `gsm8k_grpo_1000samples_2GPUs_v4.yaml` - 1000 samples, v4 improved settings, ~4-5 hours
+- `gsm8k_grpo_2000samples_2GPUs.yaml` - 2000 samples, ~6 hours
+- `gsm8k_grpo_2000samples_2GPUs_v3.yaml` - 2000 samples, v3 conservative settings, ~6-7 hours
+- `gsm8k_grpo_4000samples_2GPUs.yaml` - 4000 samples, ~12 hours
+
+**Full Training:**
 - `gsm8k_grpo_cloud.yaml` - **Full training** (REQUIRES H200/H100/A100-80GB, 80GB+ memory)
   - Full dataset (7473 samples), 5 epochs, ~5 days training time
   - Auto-validated: script checks GPU before allowing full training
+
+**Quick Training (Single GPU):**
 - `gsm8k_grpo_1hour.yaml` - 1-hour training (works on all GPUs)
   - Memory-optimized settings: works on RTX 4090, RTX 5090, A40, A100, H200, etc.
 - `gsm8k_grpo_3hour.yaml` - 3-hour training (works on all GPUs)
@@ -134,8 +153,8 @@ For full training (5 days):
 
 ## Next Steps
 
-1. **For RunPod Setup**: See `RUNPOD_QUICK_START.md` ⭐
-2. **For Complete Guide**: See `RUNPOD_COMPLETE_GUIDE.md`
-3. **For A40 GPU Issues**: See `A40_GPU_FIX.md` ⚠️
-4. **For H200 Setup**: See `H200_SETUP.md`
-5. **For Recovery**: See `RECOVERY_QUICK_START.md`
+1. **For RunPod Setup**: See `RUNPOD_COMPLETE_GUIDE.md` ⭐ (includes quick start section)
+2. **For Training Best Practices**: See `TRAINING_LEARNINGS.md` (includes tuning guide, epoch analysis, troubleshooting)
+3. **For A40 GPU Issues**: See `RUNPOD_COMPLETE_GUIDE.md` - "CUDA Out of Memory" section
+4. **For H200 Setup**: See `H200_SETUP.md` (if exists)
+5. **For Recovery**: See `TRAINING_LEARNINGS.md` - "Checkpoint and Recovery" section

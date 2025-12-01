@@ -23,6 +23,7 @@
 #   - standard_1000samples_2GPUs_v3_conservative: Conservative GRPO v3 with 1000 samples (prevents collapse) (~3-4 hours)
 #   - standard_1000samples_2GPUs_v4: Fine-tuned GRPO v4 with 1000 samples (improved from v3) (~4-5 hours)
 #   - standard_2000samples_2GPUs: Standard GRPO with 2000 samples using 2x A100 GPUs (~6 hours)
+#   - standard_2000samples_2GPUs_v3: GRPO with 2000 samples using v3 conservative settings (~6-7 hours)
 #   - standard_4000samples_2GPUs: Standard GRPO with 4000 samples using 2x A100 GPUs (~12 hours)
 #
 # All configs use memory-optimized settings that work on all GPUs.
@@ -437,6 +438,26 @@ else
         EXPERIMENT_NAME="gsm8k-grpo-cloud-2gpu-2000samples"
         echo "Using STANDARD 2000 SAMPLES 2 GPUs configuration"
         echo "Note: GRPO only (no reasoning XML). Dataset capped at 2000 samples (~6 hours)."
+        echo "⚠️  WARNING: This config uses original settings. Consider standard_2000samples_2GPUs_v3 for better stability."
+        echo "GPU count: $GPU_COUNT (required: 2)"
+        ;;
+    standard_2000samples_2GPUs_v3)
+        # Check GPU count
+        if [ -z "$GPU_COUNT" ] || [ "$GPU_COUNT" -lt 2 ]; then
+            echo "ERROR: This config requires 2 GPUs"
+            echo "Detected: $GPU_COUNT GPU(s)"
+            echo ""
+            echo "This config is optimized for 2x A100 80GB (one GPU for SGLang, one for training)."
+            echo "Please use a pod with at least 2 GPUs or choose a single-GPU config."
+            exit 1
+        fi
+        CONFIG_FILE="examples/cloud_gsm8k/gsm8k_grpo_2000samples_2GPUs_v3.yaml"
+        TRAIN_SCRIPT="examples/cloud_gsm8k/gsm8k_grpo_train.py"
+        EXPERIMENT_NAME="gsm8k-grpo-cloud-2gpu-2000samples-v3"
+        echo "Using 2000 SAMPLES 2 GPUs V3 CONSERVATIVE configuration"
+        echo "Note: 2000-sample subset with v3 conservative settings (~6-7 hours on dual A100s)"
+        echo "Settings: lr=1.00e-5, 4 epochs, kl_ctl=0.02, 5% warmup, max_new_tokens=512"
+        echo "Expected: 40-50%+ accuracy (improvement over 1000-sample v3 at 38%)"
         echo "GPU count: $GPU_COUNT (required: 2)"
         ;;
     standard_4000samples_2GPUs)
@@ -475,7 +496,7 @@ else
         ;;
     *)
         echo "ERROR: Unknown config name: $CONFIG_NAME"
-        echo "Valid options: fastest, fast, 1hour, 3hour, full, reasoning_fastest, reasoning_fast, reasoning_1hour, reasoning_3hour, reasoning_1000samples_2GPUs, reasoning_2000samples_4GPUs, standard_1000samples_2GPUs, standard_1000samples_2GPUs_improved, standard_1000samples_2GPUs_v2, standard_1000samples_2GPUs_v3_conservative, standard_1000samples_2GPUs_v4, standard_2000samples_2GPUs, standard_4000samples_2GPUs"
+        echo "Valid options: fastest, fast, 1hour, 3hour, full, reasoning_fastest, reasoning_fast, reasoning_1hour, reasoning_3hour, reasoning_1000samples_2GPUs, reasoning_2000samples_4GPUs, standard_1000samples_2GPUs, standard_1000samples_2GPUs_improved, standard_1000samples_2GPUs_v2, standard_1000samples_2GPUs_v3_conservative, standard_1000samples_2GPUs_v4, standard_2000samples_2GPUs, standard_2000samples_2GPUs_v3, standard_4000samples_2GPUs"
         echo ""
         echo "Or provide a full path to a config file (e.g., examples/cloud_gsm8k/gsm8k_grpo_1000samples_2GPUs_improved.yaml)"
         exit 1

@@ -4,12 +4,16 @@
 # Usage:
 #   bash examples/cloud_gsm8k/test_full_dataset.sh [checkpoint_path] [log_file]
 #
-#   checkpoint_path: Optional. Full path to model checkpoint directory.
+#   checkpoint_path: Optional. Full path to model checkpoint directory OR "baseline" to test base model.
+#                    If "baseline", tests Qwen/Qwen2.5-0.5B-Instruct on full dataset.
 #                    If not provided, will try to extract from log_file or find latest checkpoint.
 #   log_file: Optional. Path to training log file to extract checkpoint path from.
 #             If not provided, will try to find latest checkpoint automatically.
 #
 # Examples:
+#   # Test baseline model on full dataset
+#   bash examples/cloud_gsm8k/test_full_dataset.sh baseline
+#
 #   # Auto-detect from latest checkpoint
 #   bash examples/cloud_gsm8k/test_full_dataset.sh
 #
@@ -47,11 +51,22 @@ CHECKPOINT_PATH="${1:-}"
 LOG_FILE="${2:-}"
 BATCH_SIZE="${TEST_BATCH_SIZE:-32}"  # Optimized for A100 80GB - can handle 32-64 easily
 MAX_NEW_TOKENS=512
+IS_BASELINE=false
+MODEL_NAME=""
 
 # Check if checkpoint path is provided
 if [ -n "$CHECKPOINT_PATH" ]; then
-    echo "Using provided checkpoint path: $CHECKPOINT_PATH"
-    MODEL_PATH="$CHECKPOINT_PATH"
+    # Special case: "baseline" means test the base model
+    if [ "$CHECKPOINT_PATH" = "baseline" ]; then
+        echo "Testing BASELINE model (Qwen/Qwen2.5-0.5B-Instruct) on full dataset..."
+        MODEL_PATH="Qwen/Qwen2.5-0.5B-Instruct"
+        MODEL_NAME="Baseline"
+        IS_BASELINE=true
+    else
+        echo "Using provided checkpoint path: $CHECKPOINT_PATH"
+        MODEL_PATH="$CHECKPOINT_PATH"
+        IS_BASELINE=false
+    fi
 elif [ -n "$LOG_FILE" ]; then
     echo "Extracting checkpoint path from log file: $LOG_FILE"
     # Try multiple patterns to extract checkpoint path
@@ -97,16 +112,20 @@ else
     echo "Found latest checkpoint: $MODEL_PATH"
 fi
 
-# Validate checkpoint exists
-if [ ! -d "$MODEL_PATH" ]; then
-    echo "ERROR: Checkpoint directory does not exist: $MODEL_PATH"
-    exit 1
-fi
-
-if [ ! -f "$MODEL_PATH/config.json" ]; then
-    echo "ERROR: Checkpoint directory does not contain config.json: $MODEL_PATH"
-    echo "This may not be a valid HuggingFace checkpoint."
-    exit 1
+# Validate checkpoint exists (skip for baseline/HuggingFace model identifiers)
+if [ "$IS_BASELINE" != "true" ]; then
+    # Check if it's a HuggingFace model identifier (contains /)
+    if [[ "$MODEL_PATH" == *"/"* ]] && [[ "$MODEL_PATH" != "/"* ]]; then
+        # It's a HuggingFace model identifier, skip directory check
+        echo "Using HuggingFace model identifier: $MODEL_PATH"
+    elif [ ! -d "$MODEL_PATH" ]; then
+        echo "ERROR: Checkpoint directory does not exist: $MODEL_PATH"
+        exit 1
+    elif [ ! -f "$MODEL_PATH/config.json" ]; then
+        echo "ERROR: Checkpoint directory does not contain config.json: $MODEL_PATH"
+        echo "This may not be a valid HuggingFace checkpoint."
+        exit 1
+    fi
 fi
 
 echo ""
@@ -121,8 +140,8 @@ echo "==========================================================================
 echo ""
 
 # Determine if this is a reasoning model or standard GRPO model
-# Check checkpoint path for "reasoning" keyword
-if [[ "$MODEL_PATH" == *"reasoning"* ]]; then
+# Check checkpoint path for "reasoning" keyword (skip for baseline)
+if [ "$IS_BASELINE" != "true" ] && [[ "$MODEL_PATH" == *"reasoning"* ]]; then
     echo "Detected reasoning model. Using reasoning test script..."
     TEST_SCRIPT="examples/cloud_gsm8k/test_reasoning_model_cloud.py"
     MAX_NEW_TOKENS=1024  # Reasoning models need more tokens
@@ -131,10 +150,17 @@ else
     TEST_SCRIPT="examples/cloud_gsm8k/test_trained_model_cloud.py"
 fi
 
-# Extract model name from checkpoint path for logging
-MODEL_NAME=$(basename "$(dirname "$(dirname "$MODEL_PATH")")")
-if [ -z "$MODEL_NAME" ] || [ "$MODEL_NAME" == "." ]; then
-    MODEL_NAME="Trained"
+# Extract model name from checkpoint path for logging (if not already set)
+if [ -z "$MODEL_NAME" ]; then
+    # Check if it's a HuggingFace model identifier
+    if [[ "$MODEL_PATH" == *"/"* ]] && [[ "$MODEL_PATH" != "/"* ]]; then
+        MODEL_NAME="Baseline"
+    else
+        MODEL_NAME=$(basename "$(dirname "$(dirname "$MODEL_PATH")")")
+        if [ -z "$MODEL_NAME" ] || [ "$MODEL_NAME" == "." ]; then
+            MODEL_NAME="Trained"
+        fi
+    fi
 fi
 
 echo ""

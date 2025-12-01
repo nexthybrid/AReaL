@@ -1,18 +1,19 @@
-# Conservative GRPO Training v3 (3x GPUs, 1000 samples) - GPU-Optimized
+# Conservative GRPO Training v3 (3x GPUs, 1000 samples) - Aggressively GPU-Optimized
 # Focus: Prevent model collapse with very conservative hyperparameters
 # Optimized for 3x A100 80GB GPUs for faster training with more epochs
 # GPU Allocation: 1 GPU for SGLang inference + 2 GPUs for training (actor + ref)
-# Key optimizations for better GPU utilization:
+# Key optimizations for maximum GPU utilization:
 # - 2 GPUs for training (vs 1 GPU) = faster training, larger batch capacity
-# - batch_size: 8 (vs 4) - better GPU utilization (A100 80GB can handle it)
-# - max_tokens_per_mb: 6144 (vs 4096) - better GPU utilization
+# - batch_size: 16 (vs 8) - much better GPU utilization (A100 80GB can easily handle it)
+# - max_tokens_per_mb: 10240 (vs 6144) - larger microbatch for better GPU utilization
+# - n_samples: 8 (vs 4) - more samples per prompt = more computation per batch
 # - gradient_checkpointing: false - A100 80GB has plenty of memory, faster training
-# - max_concurrent_rollouts: 48 (vs 32) - better throughput
+# - max_concurrent_rollouts: 64 (vs 48) - better throughput with more parallelism
 # - All v3 conservative hyperparameters retained (lr, kl_ctl, warmup, etc.)
 #
-# Expected training time: ~2-3 hours (vs 3-4 hours on 2 GPUs)
+# Expected training time: ~1.5-2 hours (vs 2-3 hours previously)
 # Better for running more epochs efficiently
-# Expected GPU utilization: GPU0 ~60%, GPU1/2 ~40-50% (much better than 10%)
+# Expected GPU utilization: GPU0 ~60%, GPU1/2 ~50-60% (target: 50%+)
 
 experiment_name: gsm8k-grpo-cloud-3gpu-1000samples-v3-conservative
 trial_name: trial0
@@ -42,7 +43,7 @@ allocation_mode: sglang.d1t1p1+d2t1p1
 rollout:
   experiment_name: ${experiment_name}
   trial_name: ${trial_name}
-  max_concurrent_rollouts: 48  # Increased for better GPU utilization (3 GPUs can handle more)
+  max_concurrent_rollouts: 64  # Aggressively increased for maximum GPU utilization (3 GPUs can handle much more)
   queue_size: null
   consumer_batch_size: ${train_dataset.batch_size}
   max_head_offpolicyness: 2
@@ -52,7 +53,7 @@ rollout:
   setup_timeout: 300
 
 gconfig:
-  n_samples: 4
+  n_samples: 8  # Increased from 4 to 8 for better GPU utilization (more samples per prompt = more computation)
   min_new_tokens: 0
   max_new_tokens: 512  # Sufficient for complete answers
   greedy: false
@@ -67,7 +68,7 @@ actor:
   gradient_checkpointing: false  # Disabled for better GPU utilization (A100 80GB has plenty of memory)
   dtype: bfloat16
   mb_spec:
-    max_tokens_per_mb: 6144  # Increased from 4096 to better utilize A100 80GB (was conservative)
+    max_tokens_per_mb: 10240  # Aggressively increased for maximum GPU utilization (A100 80GB can easily handle this)
   optimizer:
     type: adam
     lr: 1.00e-5  # Reduced from 1.50e-5 for more conservative updates
@@ -122,7 +123,7 @@ sglang:
   attention_backend: flashinfer
 
 train_dataset:
-  batch_size: 8  # Increased from 4 to better utilize 2 training GPUs (A100 80GB can handle it)
+  batch_size: 16  # Aggressively increased for maximum GPU utilization (A100 80GB can easily handle 16+)
   shuffle: true
   pin_memory: true
   num_workers: 0
@@ -131,7 +132,7 @@ train_dataset:
   max_length: 512
 
 valid_dataset:
-  batch_size: 8  # Increased from 4 to match train_dataset
+  batch_size: 16  # Increased to match train_dataset
   shuffle: true
   pin_memory: true
   num_workers: 0

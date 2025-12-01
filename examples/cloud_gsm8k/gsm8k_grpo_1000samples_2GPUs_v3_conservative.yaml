@@ -1,4 +1,4 @@
-# Conservative GRPO Training v3 (2x GPUs, 1000 samples)
+# Conservative GRPO Training v3 (2x GPUs, 1000 samples) - Aggressively GPU-Optimized
 # Focus: Prevent model collapse with very conservative hyperparameters
 # Key changes from v2:
 # - lr: 1.00e-5 (reduced from 1.50e-5) - more conservative
@@ -6,6 +6,13 @@
 # - warmup_steps_proportion: 0.05 (increased from 0.02) - more gradual start
 # - kl_ctl: 0.02 (increased from 0.01) - stronger regularization
 # - All other critical fixes retained
+# GPU Optimizations:
+# - batch_size: 12 (vs 4) - much better GPU utilization
+# - max_tokens_per_mb: 8192 (vs 4096) - larger microbatch
+# - n_samples: 8 (vs 4) - more samples per prompt
+# - gradient_checkpointing: false - A100 80GB has plenty of memory
+# - max_concurrent_rollouts: 40 (vs 24) - better throughput
+# Expected GPU utilization: GPU0 ~60%, GPU1 ~50-60%
 
 experiment_name: gsm8k-grpo-cloud-2gpu-1000samples-v3-conservative
 trial_name: trial0
@@ -35,7 +42,7 @@ allocation_mode: sglang.d1t1p1+d1t1p1
 rollout:
   experiment_name: ${experiment_name}
   trial_name: ${trial_name}
-  max_concurrent_rollouts: 24
+  max_concurrent_rollouts: 40  # Aggressively increased for maximum GPU utilization
   queue_size: null
   consumer_batch_size: ${train_dataset.batch_size}
   max_head_offpolicyness: 2
@@ -45,7 +52,7 @@ rollout:
   setup_timeout: 300
 
 gconfig:
-  n_samples: 4
+  n_samples: 8  # Increased from 4 to 8 for better GPU utilization (more samples per prompt = more computation)
   min_new_tokens: 0
   max_new_tokens: 512  # Sufficient for complete answers
   greedy: false
@@ -57,10 +64,10 @@ actor:
   path: Qwen/Qwen2.5-0.5B-Instruct
   init_from_scratch: false
   disable_dropout: true
-  gradient_checkpointing: true
+  gradient_checkpointing: false  # Disabled for better GPU utilization (A100 80GB has plenty of memory)
   dtype: bfloat16
   mb_spec:
-    max_tokens_per_mb: 4096
+    max_tokens_per_mb: 8192  # Aggressively increased for maximum GPU utilization
   optimizer:
     type: adam
     lr: 1.00e-5  # Reduced from 1.50e-5 for more conservative updates
@@ -100,7 +107,7 @@ ref:
   disable_dropout: true
   dtype: ${actor.dtype}
   mb_spec:
-    max_tokens_per_mb: 4096
+    max_tokens_per_mb: 8192  # Increased to match actor for better GPU utilization
   optimizer: null
   backend: fsdp
 
@@ -115,7 +122,7 @@ sglang:
   attention_backend: flashinfer
 
 train_dataset:
-  batch_size: 4
+  batch_size: 12  # Aggressively increased for maximum GPU utilization (A100 80GB can easily handle 12+)
   shuffle: true
   pin_memory: true
   num_workers: 0
@@ -124,7 +131,7 @@ train_dataset:
   max_length: 512
 
 valid_dataset:
-  batch_size: 4
+  batch_size: 12  # Increased to match train_dataset
   shuffle: true
   pin_memory: true
   num_workers: 0

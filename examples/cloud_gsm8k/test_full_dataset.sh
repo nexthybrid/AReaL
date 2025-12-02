@@ -280,6 +280,24 @@ find_interval_checkpoints() {
     printf '%s\n' "${interval_checkpoints[@]}"
 }
 
+# Check for completion markers BEFORE starting interval testing
+# This prevents RunPod container restarts from causing infinite loops
+if [ "$TEST_INTERVALS" = "true" ]; then
+    if ls $COMPLETION_MARKER_PATTERN 1> /dev/null 2>&1; then
+        echo "=========================================="
+        echo "⚠️  Interval testing already completed!"
+        echo "=========================================="
+        echo "Found completion marker(s):"
+        ls -lh $COMPLETION_MARKER_PATTERN | head -3
+        echo ""
+        echo "Exiting to prevent re-running and save costs."
+        echo "If you want to run again, delete the completion markers first:"
+        echo "  rm $COMPLETION_MARKER_PATTERN"
+        echo "=========================================="
+        exit 0
+    fi
+fi
+
 # Determine if we should test intervals
 if [ "$TEST_INTERVALS" = "true" ] && [ "$IS_BASELINE" != "true" ] && [[ "$MODEL_PATH" == "/"* ]]; then
     echo ""
@@ -314,10 +332,34 @@ if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
     
     TEST_EXIT_CODE=0
     CHECKPOINT_NUM=0
+    SKIPPED_COUNT=0
+    
     for ckpt in "${INTERVAL_CHECKPOINTS[@]}"; do
         CHECKPOINT_NUM=$((CHECKPOINT_NUM + 1))
         epoch=$(parse_epoch "$ckpt")
         epoch_model_name="${MODEL_NAME}_epoch${epoch}"
+        
+        # Check if this checkpoint has already been tested (by looking for log file with FINAL ACCURACY)
+        local model_name_lower=$(echo "$epoch_model_name" | tr '[:upper:]' '[:lower:]')
+        local existing_log=$(ls -t /workspace/outputs/grpo/test_logs/test_model_${model_name_lower}_*.log 2>/dev/null | head -1)
+        
+        if [ -n "$existing_log" ] && [ -f "$existing_log" ] && grep -q "FINAL ACCURACY" "$existing_log" 2>/dev/null; then
+            echo ""
+            echo "=================================================================================="
+            echo "CHECKPOINT $CHECKPOINT_NUM/$TOTAL_CHECKPOINTS: Epoch $epoch (ALREADY TESTED - SKIPPING)"
+            echo "=================================================================================="
+            echo "Checkpoint: $ckpt"
+            echo "Found existing test log: $existing_log"
+            local existing_accuracy=$(grep "FINAL ACCURACY" "$existing_log" | head -1 | grep -oE "[0-9]+\.[0-9]+%" | head -1)
+            if [ -n "$existing_accuracy" ]; then
+                echo "Previous accuracy: $existing_accuracy"
+            fi
+            echo "Skipping to save time (test already completed)"
+            echo "=================================================================================="
+            INTERVAL_LOG_FILES+=("$existing_log")
+            SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+            continue
+        fi
         
         echo ""
         echo "=================================================================================="
@@ -343,16 +385,25 @@ if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
         fi
         
         # Find the log file for this checkpoint (most recent matching the model name)
-        # Convert model name to lowercase for matching
-        local model_name_lower=$(echo "$epoch_model_name" | tr '[:upper:]' '[:lower:]')
         local log_file=$(ls -t /workspace/outputs/grpo/test_logs/test_model_${model_name_lower}_*.log 2>/dev/null | head -1)
         if [ -n "$log_file" ] && [ -f "$log_file" ]; then
             INTERVAL_LOG_FILES+=("$log_file")
             echo "Log file saved: $log_file"
+            
+            # Create per-checkpoint completion marker to prevent re-testing if container restarts
+            local checkpoint_marker="/workspace/outputs/grpo/test_logs/interval_test_epoch${epoch}_completed.marker"
+            echo "Epoch $epoch test completed at $(date)" > "$checkpoint_marker"
+            echo "Checkpoint: $ckpt" >> "$checkpoint_marker"
+            echo "Log file: $log_file" >> "$checkpoint_marker"
         else
             echo "⚠️  Warning: Could not find log file for epoch $epoch"
         fi
     done
+    
+    if [ $SKIPPED_COUNT -gt 0 ]; then
+        echo ""
+        echo "Skipped $SKIPPED_COUNT checkpoint(s) that were already tested."
+    fi
     
     echo ""
     echo "=================================================================================="

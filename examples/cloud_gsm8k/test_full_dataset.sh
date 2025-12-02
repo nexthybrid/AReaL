@@ -51,6 +51,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# Check for completion markers to prevent re-running interval tests
+# This prevents RunPod container restarts from causing infinite loops
+COMPLETION_MARKER_PATTERN="/workspace/outputs/grpo/test_logs/interval_testing_completed_*.marker"
+# Only check if --test-intervals flag is present (check after argument parsing)
+# We'll check this after parsing arguments
+
 # Configuration
 TEST_INTERVALS=false
 # Check for --test-intervals flag FIRST (before processing positional args)
@@ -300,20 +306,26 @@ fi
 
 # Run tests
 if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
-    echo "Starting interval testing (${#INTERVAL_CHECKPOINTS[@]} checkpoint(s))..."
-    echo "This may take ${#INTERVAL_CHECKPOINTS[@]}x longer than single checkpoint test..."
+    TOTAL_CHECKPOINTS=${#INTERVAL_CHECKPOINTS[@]}
+    echo "Starting interval testing (${TOTAL_CHECKPOINTS} checkpoint(s))..."
+    echo "This may take ${TOTAL_CHECKPOINTS}x longer than single checkpoint test..."
+    echo "Estimated time: ~${TOTAL_CHECKPOINTS}x 15-30 minutes = ~$((TOTAL_CHECKPOINTS * 20)) minutes"
     echo ""
     
     TEST_EXIT_CODE=0
+    CHECKPOINT_NUM=0
     for ckpt in "${INTERVAL_CHECKPOINTS[@]}"; do
+        CHECKPOINT_NUM=$((CHECKPOINT_NUM + 1))
         epoch=$(parse_epoch "$ckpt")
         epoch_model_name="${MODEL_NAME}_epoch${epoch}"
         
         echo ""
         echo "=================================================================================="
-        echo "Testing Epoch $epoch checkpoint"
+        echo "CHECKPOINT $CHECKPOINT_NUM/$TOTAL_CHECKPOINTS: Testing Epoch $epoch"
         echo "=================================================================================="
         echo "Checkpoint: $ckpt"
+        echo "Progress: $CHECKPOINT_NUM of $TOTAL_CHECKPOINTS checkpoints"
+        echo "Estimated time remaining: ~$(( (TOTAL_CHECKPOINTS - CHECKPOINT_NUM) * 20 )) minutes"
         echo ""
         
         # Run test
@@ -352,6 +364,21 @@ if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
     fi
     echo "Log files saved in /workspace/outputs/grpo/test_logs/"
     echo "=================================================================================="
+    
+    # Create completion marker to prevent re-running if container restarts
+    # This is especially important for interval testing which takes a long time
+    COMPLETION_MARKER="/workspace/outputs/grpo/test_logs/interval_testing_completed_$(date +%Y%m%d_%H%M%S).marker"
+    echo "Interval testing completed at $(date)" > "$COMPLETION_MARKER"
+    echo "Tested ${#INTERVAL_CHECKPOINTS[@]} checkpoint(s)" >> "$COMPLETION_MARKER"
+    echo "Exit code: $TEST_EXIT_CODE" >> "$COMPLETION_MARKER"
+    for ckpt in "${INTERVAL_CHECKPOINTS[@]}"; do
+        epoch=$(parse_epoch "$ckpt")
+        echo "  - Epoch $epoch: $ckpt" >> "$COMPLETION_MARKER"
+    done
+    echo ""
+    echo "✅ Created completion marker: $COMPLETION_MARKER"
+    echo "   This prevents the script from re-running if the container restarts."
+    echo ""
 else
     # Single checkpoint test (original behavior)
     echo ""
@@ -435,6 +462,21 @@ if [ -n "$AUTO_UPLOAD_LOGS_METHOD" ]; then
     
     eval $UPLOAD_CMD || echo "⚠️  Log upload failed, but continuing..."
     echo "=========================================="
+fi
+
+# Create completion marker to prevent re-running if container restarts
+# This is especially important for interval testing which takes a long time
+if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
+    COMPLETION_MARKER="/workspace/outputs/grpo/test_logs/interval_testing_completed_$(date +%Y%m%d_%H%M%S).marker"
+    echo "Interval testing completed at $(date)" > "$COMPLETION_MARKER"
+    echo "Tested ${#INTERVAL_CHECKPOINTS[@]} checkpoint(s)" >> "$COMPLETION_MARKER"
+    echo "Exit code: $TEST_EXIT_CODE" >> "$COMPLETION_MARKER"
+    for ckpt in "${INTERVAL_CHECKPOINTS[@]}"; do
+        epoch=$(parse_epoch "$ckpt")
+        echo "  - Epoch $epoch: $ckpt" >> "$COMPLETION_MARKER"
+    done
+    echo "✅ Created completion marker: $COMPLETION_MARKER"
+    echo "   This prevents the script from re-running if the container restarts."
 fi
 
 exit $TEST_EXIT_CODE

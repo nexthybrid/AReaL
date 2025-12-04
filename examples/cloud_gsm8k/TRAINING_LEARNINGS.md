@@ -592,6 +592,58 @@ bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6
    - Increase group size
    - More epochs (or use epoch override)
 
+### Interval Testing: Comprehensive Checkpoint Evaluation
+
+For long training runs (20+ epochs), use **interval testing** to evaluate checkpoints at regular intervals instead of just the final checkpoint. This provides:
+
+- **Training progression tracking**: See how accuracy improves over epochs
+- **Optimal checkpoint identification**: Find the best-performing epoch (may not be the latest)
+- **Overfitting detection**: Observe if accuracy plateaus or decreases after a certain epoch
+- **Comprehensive analysis**: Get a complete picture of model performance throughout training
+
+#### How to Use Interval Testing
+
+**Basic usage:**
+```bash
+# Test checkpoints at 5-epoch intervals (4, 9, 14, 19, 24, etc.)
+bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_25epochs.txt --test-intervals
+```
+
+**With auto-detection:**
+```bash
+# Script automatically finds latest checkpoint
+bash examples/cloud_gsm8k/test_full_dataset.sh "" "" --test-intervals
+```
+
+**Important**: The `--test-intervals` flag must be passed to `test_full_dataset.sh`, not to `run_training_cloud.sh`.
+
+#### Interval Testing Details
+
+- **Interval pattern**: Tests at epochs 4, 9, 14, 19, 24, etc. (5-epoch intervals starting from epoch 4, since epoch 0 is the initial state)
+- **Full dataset evaluation**: Each checkpoint is tested on all 1319 GSM8K test samples
+- **Resume capability**: If interrupted (e.g., container restart), the script resumes from where it left off using completion markers
+- **Skip already-tested**: Automatically skips checkpoints that have already been tested (log file exists with "FINAL ACCURACY")
+- **Auto-upload**: All interval test logs are automatically uploaded if auto-upload is configured
+
+#### Example Results from Interval Testing
+
+From a 25-epoch training run:
+- **Epoch 4**: 54.28% accuracy (716/1319)
+- **Epoch 9**: 56.33% accuracy (743/1319)
+- **Epoch 14**: 55.72% accuracy (735/1319)
+- **Epoch 19**: **56.48% accuracy (745/1319)** ← Best performance
+- **Epoch 24**: 55.88% accuracy (737/1319)
+
+This shows that the best checkpoint was at epoch 19, not the final epoch 24, indicating potential overfitting in later epochs.
+
+#### Best Practices for Interval Testing
+
+1. **Use for long training runs**: Especially valuable for 20+ epoch training
+2. **Run after training completes**: Add to container starter code to run automatically
+3. **Monitor progress**: Each interval test takes time (full dataset evaluation), so be patient
+4. **Check completion markers**: If script seems stuck, verify completion markers exist
+5. **Analyze results**: Compare accuracy across epochs to identify optimal checkpoint and detect overfitting
+
 ### Expected Improvements
 
 With these changes, you should see:

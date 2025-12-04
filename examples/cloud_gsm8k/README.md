@@ -75,6 +75,11 @@ bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5 
   - Faster training with 2 GPUs for training (vs 1 GPU)
   - Better for running more epochs efficiently
   - GPU allocation: 1 GPU for SGLang + 2 GPUs for training
+- `gsm8k_grpo_4000samples_3GPUs_v3_conservative.yaml` - 4000 samples, v3 conservative settings, ~6-8 hours
+  - Aggressively optimized for maximum A100 GPU utilization (50-60% target)
+  - ~40-50% faster than 2-GPU config (6-8 hours vs 12+ hours)
+  - GPU allocation: 1 GPU for SGLang + 2 GPUs for training
+  - Best for larger dataset training with maximum efficiency
 
 **Full Training:**
 - `gsm8k_grpo_cloud.yaml` - **Full training** (REQUIRES H200/H100/A100-80GB, 80GB+ memory)
@@ -115,18 +120,25 @@ bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5 
   - Automatically extracts checkpoint path from training logs
   - Optimized batch size (32) for A100 80GB GPUs
   - **Auto-upload support**: Same as training script - automatically uploads test logs after completion
-  - **Interval testing**: Test checkpoints at 5-epoch intervals (5, 10, 15, etc.) with `--test-intervals` flag
+  - **Interval testing**: Test checkpoints at 5-epoch intervals (4, 9, 14, 19, etc.) with `--test-intervals` flag
+    - Useful for tracking training progression and finding optimal checkpoint
+    - Automatically tests epochs 4, 9, 14, 19, 24, etc. (starting from epoch 4 since epoch 0 is initial state)
+    - Skips already-tested checkpoints to save time
+    - Resumes from where it left off if interrupted (container restart)
+    - All interval test logs are automatically uploaded if auto-upload is configured
   - Usage: `bash examples/cloud_gsm8k/test_full_dataset.sh [checkpoint_path] [log_file] [--test-intervals]`
   - Examples:
     - `bash examples/cloud_gsm8k/test_full_dataset.sh baseline` (test baseline model Qwen/Qwen2.5-0.5B-Instruct)
     - `bash examples/cloud_gsm8k/test_full_dataset.sh` (auto-detect latest checkpoint)
     - `bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt` (extract from log)
-    - `bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt --test-intervals` (test at 5-epoch intervals)
-    - `bash examples/cloud_gsm8k/test_full_dataset.sh /path/to/checkpoint` (use specific checkpoint)
+    - `bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_25epochs.txt --test-intervals` (test at 5-epoch intervals: 4, 9, 14, 19, 24)
+    - `bash examples/cloud_gsm8k/test_full_dataset.sh /path/to/checkpoint --test-intervals` (use specific checkpoint directory with interval testing)
+  - **Important**: The `--test-intervals` flag must be passed to `test_full_dataset.sh`, not to `run_training_cloud.sh`
   - Batch size can be overridden: `TEST_BATCH_SIZE=48 bash examples/cloud_gsm8k/test_full_dataset.sh`
   - Auto-upload: Set `AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=user@example.com` (same env vars as training script)
     - With interval testing: All interval test logs will be uploaded
   - **Alternative direct call**: `python3 examples/cloud_gsm8k/test_trained_model_cloud.py --model-path Qwen/Qwen2.5-0.5B-Instruct --all --batch-size 32`
+  - **See also**: `RUNPOD_COMPLETE_GUIDE.md` - "Step 10: Interval Testing" section for detailed documentation
 
 ### Other Documentation
 - `CHECKPOINT_SAVING_FIX.md` - Checkpoint saving configuration fixes

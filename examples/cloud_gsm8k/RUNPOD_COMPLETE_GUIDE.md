@@ -492,6 +492,83 @@ python3 examples/cloud_gsm8k/upload_logs.py \
     --latest-only
 ```
 
+### Interval Testing: Evaluating Multiple Checkpoints
+
+The `test_full_dataset.sh` script supports **interval testing**, which automatically evaluates checkpoints at 5-epoch intervals (epochs 4, 9, 14, 19, 24, etc.) instead of just the latest checkpoint. This is useful for:
+
+- **Tracking training progression**: See how accuracy improves over epochs
+- **Finding optimal checkpoint**: Identify the best-performing epoch
+- **Detecting overfitting**: Observe if accuracy plateaus or decreases after a certain epoch
+- **Comprehensive evaluation**: Get a complete picture of model performance throughout training
+
+#### Usage
+
+**Basic interval testing:**
+```bash
+# Test checkpoints at 5-epoch intervals (4, 9, 14, 19, etc.)
+bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_25epochs.txt --test-intervals
+```
+
+**With specific checkpoint path:**
+```bash
+# If you know the checkpoint directory
+bash examples/cloud_gsm8k/test_full_dataset.sh /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-2gpu-1000samples-v3-conservative/trial_20251201_091022/default --test-intervals
+```
+
+**Auto-detect from latest checkpoint:**
+```bash
+# Script will find the latest checkpoint automatically
+bash examples/cloud_gsm8k/test_full_dataset.sh "" "" --test-intervals
+```
+
+#### How Interval Testing Works
+
+1. **Finds checkpoints at 5-epoch intervals**: Starting from epoch 4 (since epoch 0 is the initial state), tests epochs 4, 9, 14, 19, 24, etc.
+2. **Tests each checkpoint**: Runs full dataset evaluation (1319 samples) for each interval checkpoint
+3. **Skips already-tested checkpoints**: If a checkpoint was already tested (log file exists with "FINAL ACCURACY"), it skips to save time
+4. **Resume capability**: If the script is interrupted (e.g., container restart), it can resume from where it left off using completion markers
+5. **Uploads all logs**: All interval test logs are automatically uploaded if auto-upload is configured
+
+#### Interval Testing Log Files
+
+Each interval checkpoint gets its own log file:
+```
+test_model_epoch4_YYYYMMDD_HHMMSS.log
+test_model_epoch9_YYYYMMDD_HHMMSS.log
+test_model_epoch14_YYYYMMDD_HHMMSS.log
+test_model_epoch19_YYYYMMDD_HHMMSS.log
+test_model_epoch24_YYYYMMDD_HHMMSS.log
+```
+
+All interval logs are automatically uploaded together if auto-upload is enabled.
+
+#### Completion Markers
+
+The script creates completion markers to prevent re-running interval tests after container restarts:
+```
+/workspace/outputs/grpo/test_logs/interval_testing_completed_YYYYMMDD_HHMMSS.marker
+```
+
+If this marker exists, the script will skip interval testing to avoid redundant computation.
+
+#### Example: Running Interval Testing in RunPod Container Starter
+
+To run interval testing automatically after training completes, add it to your RunPod container starter code:
+
+```bash
+bash -c "set -e && pip config set global.index-url https://pypi.org/simple && pip config set global.extra-index-url '' && cd /workspace && if [ -d AReaL/.git ]; then cd AReaL && git fetch origin && git checkout -B DL4Math origin/DL4Math 2>/dev/null || git checkout -B DL4Math origin/DL4Math 2>/dev/null || (cd .. && rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git); else rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git; fi && cd /workspace/AReaL && (python3 -c 'import areal' 2>/dev/null || pip install -e .) && export WANDB_API_KEY=\$WANDB_API_KEY && bash examples/cloud_gsm8k/run_training_cloud.sh standard_1000samples_2GPUs_v3_conservative 25 && bash examples/cloud_gsm8k/test_full_dataset.sh \"\" \"\" --test-intervals"
+```
+
+**Note**: The `--test-intervals` flag must be passed to `test_full_dataset.sh`, not to `run_training_cloud.sh`.
+
+#### Best Practices
+
+1. **Use interval testing for long training runs**: Especially useful for 20+ epoch training to track progression
+2. **Check completion markers**: If interval testing seems stuck, check if a completion marker exists
+3. **Monitor log files**: Each interval test takes time (full dataset evaluation), so monitor progress
+4. **Resume capability**: If interrupted, the script will resume from where it left off automatically
+5. **Auto-upload all logs**: Configure auto-upload to receive all interval test results via email
+
 ## Step 11: Network Volume Size Recommendations
 
 ### Recommended Volume Sizes by Training Config

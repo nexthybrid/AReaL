@@ -340,8 +340,8 @@ if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
         epoch_model_name="${MODEL_NAME}_epoch${epoch}"
         
         # Check if this checkpoint has already been tested (by looking for log file with FINAL ACCURACY)
-        local model_name_lower=$(echo "$epoch_model_name" | tr '[:upper:]' '[:lower:]')
-        local existing_log=$(ls -t /workspace/outputs/grpo/test_logs/test_model_${model_name_lower}_*.log 2>/dev/null | head -1)
+        model_name_lower=$(echo "$epoch_model_name" | tr '[:upper:]' '[:lower:]')
+        existing_log=$(ls -t /workspace/outputs/grpo/test_logs/test_model_${model_name_lower}_*.log 2>/dev/null | head -1)
         
         if [ -n "$existing_log" ] && [ -f "$existing_log" ] && grep -q "FINAL ACCURACY" "$existing_log" 2>/dev/null; then
             echo ""
@@ -350,7 +350,7 @@ if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
             echo "=================================================================================="
             echo "Checkpoint: $ckpt"
             echo "Found existing test log: $existing_log"
-            local existing_accuracy=$(grep "FINAL ACCURACY" "$existing_log" | head -1 | grep -oE "[0-9]+\.[0-9]+%" | head -1)
+            existing_accuracy=$(grep "FINAL ACCURACY" "$existing_log" | head -1 | grep -oE "[0-9]+\.[0-9]+%" | head -1)
             if [ -n "$existing_accuracy" ]; then
                 echo "Previous accuracy: $existing_accuracy"
             fi
@@ -378,20 +378,20 @@ if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
             --model-name "$epoch_model_name" \
             --batch-size "$BATCH_SIZE"
         
-        local ckpt_exit_code=$?
+        ckpt_exit_code=$?
         if [ $ckpt_exit_code -ne 0 ]; then
             TEST_EXIT_CODE=$ckpt_exit_code
             echo "⚠️ Warning: Test for epoch $epoch failed with exit code $ckpt_exit_code"
         fi
         
         # Find the log file for this checkpoint (most recent matching the model name)
-        local log_file=$(ls -t /workspace/outputs/grpo/test_logs/test_model_${model_name_lower}_*.log 2>/dev/null | head -1)
+        log_file=$(ls -t /workspace/outputs/grpo/test_logs/test_model_${model_name_lower}_*.log 2>/dev/null | head -1)
         if [ -n "$log_file" ] && [ -f "$log_file" ]; then
             INTERVAL_LOG_FILES+=("$log_file")
             echo "Log file saved: $log_file"
             
             # Create per-checkpoint completion marker to prevent re-testing if container restarts
-            local checkpoint_marker="/workspace/outputs/grpo/test_logs/interval_test_epoch${epoch}_completed.marker"
+            checkpoint_marker="/workspace/outputs/grpo/test_logs/interval_test_epoch${epoch}_completed.marker"
             echo "Epoch $epoch test completed at $(date)" > "$checkpoint_marker"
             echo "Checkpoint: $ckpt" >> "$checkpoint_marker"
             echo "Log file: $log_file" >> "$checkpoint_marker"

@@ -9,7 +9,7 @@
 #                    If not provided, will try to extract from log_file or find latest checkpoint.
 #   log_file: Optional. Path to training log file to extract checkpoint path from.
 #             If not provided, will try to find latest checkpoint automatically.
-#   --test-intervals: Optional flag. If provided, tests checkpoints at 5-epoch intervals (5, 10, 15, etc.)
+#   --test-intervals: Optional flag. If provided, tests checkpoints at 5-epoch intervals (4, 9, 14, 19, etc.)
 #                    instead of just the latest checkpoint. All interval test logs will be uploaded.
 #
 # Examples:
@@ -22,7 +22,7 @@
 #   # Test latest checkpoint from log file
 #   bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt
 #
-#   # Test at 5-epoch intervals (5, 10, 15, etc.)
+#   # Test at 5-epoch intervals (4, 9, 14, 19, etc.)
 #   bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt --test-intervals
 #
 #   # Use specific checkpoint (test only that checkpoint)
@@ -206,7 +206,7 @@ parse_epoch() {
     fi
 }
 
-# Function to find checkpoints at 5-epoch intervals
+# Function to find checkpoints at 5-epoch intervals (starting from epoch 4, since epoch 0 is initial)
 # Returns checkpoints at epochs 5, 10, 15, etc., plus the latest checkpoint
 find_interval_checkpoints() {
     local checkpoint_dir="$1"
@@ -237,9 +237,10 @@ find_interval_checkpoints() {
         return 1
     fi
     
-    # Filter to 5-epoch intervals (5, 10, 15, etc.) up to max_epoch
+    # Filter to 5-epoch intervals (4, 9, 14, 19, etc.) up to max_epoch
+    # Starting from epoch 4 because epoch 0 is the initial checkpoint
     local interval_checkpoints=()
-    local epoch=5
+    local epoch=4
     while [ "$epoch" -le "$max_epoch" ]; do
         # Find checkpoint for this epoch
         for ckpt_pair in "${all_checkpoints[@]}"; do
@@ -254,7 +255,8 @@ find_interval_checkpoints() {
     done
     
     # Also include the latest checkpoint (max_epoch) if not already included
-    if [ "$max_epoch" -gt 0 ] && [ $((max_epoch % 5)) -ne 0 ]; then
+    # Check if max_epoch is not on a 5-epoch interval starting from 4 (i.e., not 4, 9, 14, 19, 24, etc.)
+    if [ "$max_epoch" -gt 0 ] && [ $((max_epoch % 5)) -ne 4 ]; then
         # Find checkpoint for max_epoch
         for ckpt_pair in "${all_checkpoints[@]}"; do
             local ckpt_epoch="${ckpt_pair%%:*}"
@@ -302,7 +304,7 @@ fi
 if [ "$TEST_INTERVALS" = "true" ] && [ "$IS_BASELINE" != "true" ] && [[ "$MODEL_PATH" == "/"* ]]; then
     echo ""
     echo "=================================================================================="
-    echo "INTERVAL TESTING MODE: Testing at 5-epoch intervals"
+    echo "INTERVAL TESTING MODE: Testing at 5-epoch intervals (4, 9, 14, 19, etc.)"
     echo "=================================================================================="
     
     # Find all checkpoints at 5-epoch intervals
@@ -310,10 +312,10 @@ if [ "$TEST_INTERVALS" = "true" ] && [ "$IS_BASELINE" != "true" ] && [[ "$MODEL_
     mapfile -t INTERVAL_CHECKPOINTS < <(find_interval_checkpoints "$MODEL_PATH" 2>&1)
     
     if [ ${#INTERVAL_CHECKPOINTS[@]} -eq 0 ]; then
-        echo "WARNING: No checkpoints found at 5-epoch intervals. Falling back to latest checkpoint."
+        echo "WARNING: No checkpoints found at 5-epoch intervals (4, 9, 14, 19, etc.). Falling back to latest checkpoint."
         TEST_INTERVALS=false
     else
-        echo "Found ${#INTERVAL_CHECKPOINTS[@]} checkpoint(s) at 5-epoch intervals:"
+        echo "Found ${#INTERVAL_CHECKPOINTS[@]} checkpoint(s) at 5-epoch intervals (4, 9, 14, 19, etc.):"
         for ckpt in "${INTERVAL_CHECKPOINTS[@]}"; do
             epoch=$(parse_epoch "$ckpt")
             echo "  - Epoch $epoch: $ckpt"
@@ -409,7 +411,7 @@ if [ "$TEST_INTERVALS" = "true" ] && [ ${#INTERVAL_CHECKPOINTS[@]} -gt 0 ]; then
     echo "=================================================================================="
     if [ $TEST_EXIT_CODE -eq 0 ]; then
         echo "✅ Interval testing completed successfully!"
-        echo "Tested ${#INTERVAL_CHECKPOINTS[@]} checkpoint(s) at 5-epoch intervals"
+        echo "Tested ${#INTERVAL_CHECKPOINTS[@]} checkpoint(s) at 5-epoch intervals (4, 9, 14, 19, etc.)"
     else
         echo "⚠️ Interval testing completed with some failures"
     fi

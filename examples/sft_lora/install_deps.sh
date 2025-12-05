@@ -1,0 +1,2 @@
+!pip install --upgrade --no-cache-dir "unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git"
+!pip install -U trl transformers accelerate peft bitsandbytes wandb latex2sympy2 pebble sympy word2number

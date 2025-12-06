@@ -22,6 +22,7 @@ import glob
 import re
 import subprocess
 import time
+import tempfile
 from copy import deepcopy
 
 import torch.distributed as dist
@@ -78,7 +79,7 @@ def main(args):
     config_file_str = str(config_file)  # Store for later use
     raw_yaml = OmegaConf.load(config_file)
     
-    # Extract custom training parameters
+    # Extract custom training parameters BEFORE removing them
     max_train_samples = raw_yaml.get("max_train_samples", None)
     if max_train_samples is not None:
         max_train_samples = int(max_train_samples)
@@ -86,24 +87,48 @@ def main(args):
     circuit_breaker_enabled = raw_yaml.get("circuit_breaker_enabled", True)
     circuit_breaker_threshold = int(raw_yaml.get("circuit_breaker_threshold", 50))
     
-    # Remove custom fields from config to avoid validation errors
-    # Use OmegaConf/Hydra delete syntax (~key) to remove keys
+    # Remove custom fields from OmegaConf object to avoid validation errors
     # These fields are not part of GRPOConfig, so they must be removed before validation
-    # Note: We need to remove max_train_samples even if it's null, because Hydra will try to validate it
+    # We remove them from the OmegaConf object directly, then write a temporary config file
     custom_keys = ["max_train_samples", "training_mode", "circuit_breaker_enabled", "circuit_breaker_threshold"]
-    override_args = []
+    cleaned_yaml = OmegaConf.create(OmegaConf.to_container(raw_yaml, resolve=False))
     for key in custom_keys:
-        if key in raw_yaml:
-            # Use ~ prefix to delete the key in OmegaConf/Hydra
-            # This removes the key from the config before validation, regardless of its value
-            override_args.append(f"~{key}")
+        if key in cleaned_yaml:
+            del cleaned_yaml[key]
     
-    # Add overrides to args to remove custom keys
-    args_with_overrides = args + override_args
+    # Write cleaned config to a temporary file
+    temp_config_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+    OmegaConf.save(cleaned_yaml, temp_config_file.name)
+    temp_config_file.close()
     
-    # Now load config normally - the overrides will remove the custom keys
-    config, _ = load_expr_config(args_with_overrides, GRPOConfig)
-    config: GRPOConfig
+    # Update args to use the cleaned config file
+    # Handle both --config=path and --config path formats
+    args_with_overrides = []
+    skip_next = False
+    for i, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            args_with_overrides.append(temp_config_file.name)
+            continue
+        if arg == "--config":
+            args_with_overrides.append("--config")
+            skip_next = True
+        elif arg.startswith("--config="):
+            args_with_overrides.append(f"--config={temp_config_file.name}")
+        else:
+            args_with_overrides.append(arg)
+    
+    # Now load config normally - the cleaned config file doesn't have custom keys
+    try:
+        config, _ = load_expr_config(args_with_overrides, GRPOConfig)
+        config: GRPOConfig
+    finally:
+        # Clean up temporary config file
+        try:
+            if os.path.exists(temp_config_file.name):
+                os.unlink(temp_config_file.name)
+        except Exception:
+            pass  # Ignore cleanup errors
 
     rank = int(os.getenv("RANK"))
     tokenizer = load_hf_tokenizer(config.tokenizer_path)

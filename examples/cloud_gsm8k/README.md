@@ -85,6 +85,12 @@ bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5 
 - `gsm8k_grpo_cloud.yaml` - **Full training** (REQUIRES H200/H100/A100-80GB, 80GB+ memory)
   - Full dataset (7473 samples), 5 epochs, ~5 days training time
   - Auto-validated: script checks GPU before allowing full training
+- `gsm8k_grpo_full_3GPUs_v3_conservative.yaml` - **Full training with 3 GPUs, v3 conservative** (REQUIRES 3x H200/H100/A100-80GB, 80GB+ memory)
+  - Full dataset (7473 samples), 25 epochs, ~3-3.5 days training time
+  - Aggressively optimized for maximum A100 GPU utilization (50-60% target)
+  - ~40-50% faster than 2-GPU or 1-GPU full training
+  - GPU allocation: 1 GPU for SGLang + 2 GPUs for training
+  - Best for full dataset training with maximum efficiency
 
 **Quick Training (Single GPU):**
 - `gsm8k_grpo_1hour.yaml` - 1-hour training (works on all GPUs)

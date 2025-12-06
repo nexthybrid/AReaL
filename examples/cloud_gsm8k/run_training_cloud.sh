@@ -35,6 +35,7 @@
 #   - standard_2000samples_2GPUs_v3: GRPO with 2000 samples using v3 conservative settings (~6-7 hours)
 #   - standard_4000samples_2GPUs: Standard GRPO with 4000 samples using 2x A100 GPUs (~12 hours)
 #   - standard_4000samples_3GPUs_v3_conservative: Conservative GRPO v3 with 4000 samples, 3 GPUs (faster training, max GPU utilization) (~6-8 hours)
+#   - full_3GPUs_v3_conservative: Conservative GRPO v3 with FULL dataset (7473 samples), 3 GPUs (fastest full training) (~3-3.5 days)
 #
 # All configs use memory-optimized settings that work on all GPUs.
 
@@ -298,8 +299,48 @@ else
         TRAIN_SCRIPT="examples/cloud_gsm8k/gsm8k_grpo_train.py"
         EXPERIMENT_NAME="gsm8k-grpo-cloud-full"
         echo "Using FULL training configuration (full dataset, 5 epochs)"
+        echo "Note: GRPO only (no reasoning XML). Full dataset (7473 samples)."
+        echo "⚠️  WARNING: This config uses original settings. Consider full_3GPUs_v3_conservative for better stability and faster training."
         echo "GPU: $GPU_NAME ($GPU_MEMORY MB) - suitable for full training"
         echo "Estimated time: ~5 days"
+        ;;
+    full_3GPUs_v3_conservative)
+        # Full training with 3 GPUs requires high-end GPUs
+        if ! check_full_training_gpu; then
+            echo "ERROR: Full training requires H200, H100, A100-80GB, or equivalent GPU (80GB+ memory)"
+            echo "Detected GPU: $GPU_NAME ($GPU_MEMORY MB)"
+            echo ""
+            echo "For full training, please use:"
+            echo "  - H200 (141GB memory)"
+            echo "  - H100 (80GB memory)"
+            echo "  - A100 80GB (80GB memory)"
+            echo ""
+            echo "For other GPUs, use: fast, 1hour, or 3hour configs"
+            exit 1
+        fi
+        
+        # Check GPU count
+        if [ -z "$GPU_COUNT" ] || [ "$GPU_COUNT" -lt 3 ]; then
+            echo "ERROR: This config requires 3 GPUs"
+            echo "Detected: $GPU_COUNT GPU(s)"
+            echo ""
+            echo "This config is optimized for 3x A100 80GB/H100/H200 (1 GPU for SGLang, 2 GPUs for training)."
+            echo "Please use a pod with at least 3 GPUs or use the 'full' config for 2 GPUs."
+            exit 1
+        fi
+        
+        CONFIG_FILE="examples/cloud_gsm8k/gsm8k_grpo_full_3GPUs_v3_conservative.yaml"
+        TRAIN_SCRIPT="examples/cloud_gsm8k/gsm8k_grpo_train.py"
+        EXPERIMENT_NAME="gsm8k-grpo-cloud-3gpu-full-v3-conservative"
+        echo "Using FULL DATASET 3 GPUs V3 CONSERVATIVE configuration"
+        echo "Note: Prevents model collapse (lr=1.00e-5, 25 epochs, kl_ctl=0.02, 5% warmup)"
+        echo "GPU allocation: 1 GPU for SGLang inference + 2 GPUs for training"
+        echo "Benefits: ~40-50% faster training, better for running more epochs efficiently with full dataset"
+        echo "Training time: ~3-3.5 days (vs 5+ days on 2 GPUs or 1 GPU)"
+        echo "GPU utilization: Aggressively optimized for maximum A100 utilization (50-60% target)"
+        echo "Dataset: Full GSM8K (7473 samples)"
+        echo "GPU: $GPU_NAME ($GPU_MEMORY MB) - suitable for full training"
+        echo "GPU count: $GPU_COUNT (required: 3)"
         ;;
     reasoning_fastest)
         CONFIG_FILE="examples/cloud_gsm8k/gsm8k_grpo_reasoning_fastest.yaml"
@@ -549,7 +590,7 @@ else
         ;;
     *)
         echo "ERROR: Unknown config name: $CONFIG_NAME"
-        echo "Valid options: fastest, fast, 1hour, 3hour, full, reasoning_fastest, reasoning_fast, reasoning_1hour, reasoning_3hour, reasoning_1000samples_2GPUs, reasoning_2000samples_4GPUs, standard_1000samples_2GPUs, standard_1000samples_2GPUs_improved, standard_1000samples_2GPUs_v2, standard_1000samples_2GPUs_v3_conservative, standard_1000samples_3GPUs_v3_conservative, standard_1000samples_2GPUs_v4, standard_2000samples_2GPUs, standard_2000samples_2GPUs_v3, standard_4000samples_2GPUs, standard_4000samples_3GPUs_v3_conservative"
+        echo "Valid options: fastest, fast, 1hour, 3hour, full, full_3GPUs_v3_conservative, reasoning_fastest, reasoning_fast, reasoning_1hour, reasoning_3hour, reasoning_1000samples_2GPUs, reasoning_2000samples_4GPUs, standard_1000samples_2GPUs, standard_1000samples_2GPUs_improved, standard_1000samples_2GPUs_v2, standard_1000samples_2GPUs_v3_conservative, standard_1000samples_3GPUs_v3_conservative, standard_1000samples_2GPUs_v4, standard_2000samples_2GPUs, standard_2000samples_2GPUs_v3, standard_4000samples_2GPUs, standard_4000samples_3GPUs_v3_conservative"
         echo ""
         echo "Or provide a full path to a config file (e.g., examples/cloud_gsm8k/gsm8k_grpo_1000samples_2GPUs_improved.yaml)"
         exit 1

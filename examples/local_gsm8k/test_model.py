@@ -11,7 +11,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
 from datasets import load_dataset
-from areal.reward.math_parser import process_results, parse_digits
+#from areal.reward.math_parser import process_results, parse_digits
 
 def test_model(
     model_path: str,

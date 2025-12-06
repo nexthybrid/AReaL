@@ -88,12 +88,18 @@ def main(args):
     
     # Remove custom fields from config to avoid validation errors
     # Use OmegaConf/Hydra delete syntax (~key) to remove keys
-    custom_keys = ["max_train_samples", "training_mode", "circuit_breaker_enabled", "circuit_breaker_threshold"]
+    # Note: For max_train_samples, only delete if it's not None/null (when None, it means use full dataset)
+    custom_keys = ["training_mode", "circuit_breaker_enabled", "circuit_breaker_threshold"]
     override_args = []
     for key in custom_keys:
         if key in raw_yaml:
             # Use ~ prefix to delete the key in OmegaConf/Hydra
             override_args.append(f"~{key}")
+    
+    # Handle max_train_samples separately - only delete if it's not None/null
+    # When max_train_samples is None/null, it means use full dataset, so we don't need to delete it
+    if "max_train_samples" in raw_yaml and raw_yaml.get("max_train_samples") is not None:
+        override_args.append("~max_train_samples")
     
     # Add overrides to args to remove custom keys
     args_with_overrides = args + override_args

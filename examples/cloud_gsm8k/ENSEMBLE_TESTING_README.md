@@ -197,12 +197,55 @@ If testing is too slow:
 - Increase batch size (if GPU memory allows)
 - Use smaller max_new_tokens if answers are typically short
 
+## Auto-Upload Logs (Email Notification)
+
+After ensemble testing completes, the script can automatically upload logs via email (or other methods) if configured.
+
+### Quick Setup: Email (Easiest)
+
+Set these environment variables in your RunPod pod:
+
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=email
+export AUTO_UPLOAD_EMAIL_TO=your-email@example.com
+export EMAIL_FROM=your-sender@example.com
+export SMTP_PASSWORD=your-app-password  # Gmail: use App Password, not regular password
+```
+
+**For Gmail:**
+1. Enable 2-factor authentication
+2. Generate an App Password: https://myaccount.google.com/apppasswords
+3. Use the App Password as `SMTP_PASSWORD`
+
+### Other Upload Methods
+
+The script supports the same upload methods as the training script:
+- **Email** (SMTP)
+- **Google Drive** (via rclone)
+- **AWS S3**
+- **Hugging Face Hub**
+- **Weights & Biases** (as artifacts)
+- **Generic webhook/API endpoint**
+
+See `RUNPOD_COMPLETE_GUIDE.md` for detailed setup instructions for each method.
+
+### What Gets Uploaded
+
+The script uploads:
+- Individual checkpoint logs: `ensemble_checkpoint_epoch{N}.log` (one per checkpoint)
+- Ensemble voting log: `ensemble_majority_voting_{timestamp}.log` (contains final results)
+
 ## Integration with Training
 
 You can add ensemble testing to your RunPod container starter code:
 
 ```bash
-# After training completes, run ensemble testing
+# After training completes, run ensemble testing with email notification
+export AUTO_UPLOAD_LOGS_METHOD=email
+export AUTO_UPLOAD_EMAIL_TO=your-email@example.com
+export EMAIL_FROM=your-sender@example.com
+export SMTP_PASSWORD=your-app-password
+
 bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh \
     /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-2gpu-1000samples-v3-conservative/trial0/default \
     "4 9 14 19 24"
@@ -216,6 +259,12 @@ Or use it in a separate script that runs after training:
 EXPERIMENT_NAME="gsm8k-grpo-cloud-2gpu-1000samples-v3-conservative"
 TRIAL_NAME="trial0"
 CHECKPOINT_DIR="/workspace/outputs/grpo/checkpoints/root/${EXPERIMENT_NAME}/${TRIAL_NAME}/default"
+
+# Set up email notification
+export AUTO_UPLOAD_LOGS_METHOD=email
+export AUTO_UPLOAD_EMAIL_TO=your-email@example.com
+export EMAIL_FROM=your-sender@example.com
+export SMTP_PASSWORD=your-app-password
 
 bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh "$CHECKPOINT_DIR" "4 9 14 19 24"
 ```

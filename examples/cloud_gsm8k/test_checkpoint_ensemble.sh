@@ -22,6 +22,18 @@
 #   - Default: 32 (optimized for A100 80GB)
 #   - Can be overridden with TEST_BATCH_SIZE environment variable
 #   - For smaller GPUs, reduce to 16 or 8
+#
+# Auto-Upload Logs:
+#   - Set AUTO_UPLOAD_LOGS_METHOD environment variable to enable auto-upload
+#   - Supported methods: email, gdrive, s3, hf, wandb, webhook
+#   - Method-specific environment variables (same as training script):
+#     - Email: AUTO_UPLOAD_EMAIL_TO (required), EMAIL_FROM, SMTP_PASSWORD
+#     - Google Drive: AUTO_UPLOAD_GDRIVE_FOLDER_ID
+#     - S3: AUTO_UPLOAD_S3_BUCKET, AUTO_UPLOAD_S3_PREFIX (optional)
+#     - Hugging Face: AUTO_UPLOAD_HF_REPO_ID
+#     - W&B: AUTO_UPLOAD_WANDB_PROJECT, AUTO_UPLOAD_WANDB_RUN_NAME (optional)
+#     - Webhook: AUTO_UPLOAD_WEBHOOK_URL, AUTO_UPLOAD_WEBHOOK_API_KEY (optional)
+#   - Example: AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=user@example.com bash test_checkpoint_ensemble.sh ...
 
 set -e
 
@@ -112,7 +124,92 @@ python3 examples/cloud_gsm8k/test_checkpoint_ensemble.py \
     --max-new-tokens "$MAX_NEW_TOKENS" \
     --log-dir "/workspace/outputs/grpo/test_logs"
 
+TEST_EXIT_CODE=$?
+
 echo ""
-echo "Ensemble testing completed!"
+if [ $TEST_EXIT_CODE -eq 0 ]; then
+    echo "✅ Ensemble testing completed successfully!"
+else
+    echo "⚠️  Ensemble testing completed with exit code $TEST_EXIT_CODE"
+fi
 echo "Check logs in /workspace/outputs/grpo/test_logs/"
+
+# Collect log files for upload
+# Find all ensemble-related log files (individual checkpoints + ensemble voting)
+LOG_DIR="/workspace/outputs/grpo/test_logs"
+ENSEMBLE_LOG_FILES=()
+
+# Find individual checkpoint logs
+for epoch in $EPOCHS; do
+    checkpoint_log=$(ls -t "$LOG_DIR"/ensemble_checkpoint_epoch${epoch}.log 2>/dev/null | head -1)
+    if [ -n "$checkpoint_log" ] && [ -f "$checkpoint_log" ]; then
+        ENSEMBLE_LOG_FILES+=("$checkpoint_log")
+    fi
+done
+
+# Find ensemble voting log (most recent)
+ensemble_voting_log=$(ls -t "$LOG_DIR"/ensemble_majority_voting_*.log 2>/dev/null | head -1)
+if [ -n "$ensemble_voting_log" ] && [ -f "$ensemble_voting_log" ]; then
+    ENSEMBLE_LOG_FILES+=("$ensemble_voting_log")
+fi
+
+# Auto-upload logs if configured (same as training script)
+if [ -n "$AUTO_UPLOAD_LOGS_METHOD" ] && [ ${#ENSEMBLE_LOG_FILES[@]} -gt 0 ]; then
+    # Normalize method to lowercase (handle EMAIL -> email, etc.)
+    UPLOAD_METHOD=$(echo "$AUTO_UPLOAD_LOGS_METHOD" | tr '[:upper:]' '[:lower:]')
+    
+    echo ""
+    echo "=========================================="
+    echo "📤 Auto-uploading ensemble test logs via $UPLOAD_METHOD..."
+    echo "=========================================="
+    
+    UPLOAD_SCRIPT="examples/cloud_gsm8k/upload_logs.py"
+    
+    # Upload all ensemble log files
+    echo "Uploading ${#ENSEMBLE_LOG_FILES[@]} ensemble test log file(s)..."
+    UPLOAD_CMD="python3 $UPLOAD_SCRIPT --log-dir $LOG_DIR --method $UPLOAD_METHOD --log-files"
+    for log_file in "${ENSEMBLE_LOG_FILES[@]}"; do
+        if [ -f "$log_file" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD $log_file"
+        fi
+    done
+    
+    # Add method-specific arguments from environment
+    if [ "$UPLOAD_METHOD" = "email" ] && [ -n "$AUTO_UPLOAD_EMAIL_TO" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --email-to $AUTO_UPLOAD_EMAIL_TO"
+        # Note: upload_logs.py will use EMAIL_FROM and SMTP_PASSWORD from environment if not provided
+    elif [ "$UPLOAD_METHOD" = "gdrive" ] && [ -n "$AUTO_UPLOAD_GDRIVE_FOLDER_ID" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --gdrive-folder-id $AUTO_UPLOAD_GDRIVE_FOLDER_ID"
+    elif [ "$UPLOAD_METHOD" = "s3" ] && [ -n "$AUTO_UPLOAD_S3_BUCKET" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --s3-bucket $AUTO_UPLOAD_S3_BUCKET"
+        if [ -n "$AUTO_UPLOAD_S3_PREFIX" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD --s3-prefix $AUTO_UPLOAD_S3_PREFIX"
+        fi
+    elif [ "$UPLOAD_METHOD" = "hf" ] && [ -n "$AUTO_UPLOAD_HF_REPO_ID" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --hf-repo-id $AUTO_UPLOAD_HF_REPO_ID"
+    elif [ "$UPLOAD_METHOD" = "wandb" ]; then
+        if [ -n "$AUTO_UPLOAD_WANDB_PROJECT" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD --wandb-project $AUTO_UPLOAD_WANDB_PROJECT"
+        fi
+        if [ -n "$AUTO_UPLOAD_WANDB_RUN_NAME" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD --wandb-run-name $AUTO_UPLOAD_WANDB_RUN_NAME"
+        fi
+    elif [ "$UPLOAD_METHOD" = "webhook" ] && [ -n "$AUTO_UPLOAD_WEBHOOK_URL" ]; then
+        UPLOAD_CMD="$UPLOAD_CMD --webhook-url $AUTO_UPLOAD_WEBHOOK_URL"
+        if [ -n "$AUTO_UPLOAD_WEBHOOK_API_KEY" ]; then
+            UPLOAD_CMD="$UPLOAD_CMD --webhook-api-key $AUTO_UPLOAD_WEBHOOK_API_KEY"
+        fi
+    fi
+    
+    # Execute upload command
+    if eval $UPLOAD_CMD; then
+        echo "✅ Successfully uploaded ${#ENSEMBLE_LOG_FILES[@]} log file(s) via $UPLOAD_METHOD!"
+    else
+        echo "⚠️  Log upload failed, but continuing..."
+    fi
+    echo "=========================================="
+fi
+
+# Exit with test exit code
+exit $TEST_EXIT_CODE
 

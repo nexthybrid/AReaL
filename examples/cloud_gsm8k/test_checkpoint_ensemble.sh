@@ -117,9 +117,15 @@ echo "Max new tokens: $MAX_NEW_TOKENS"
 echo ""
 
 # Run the ensemble testing script
+# Convert EPOCHS string to array and pass as separate arguments
+# This ensures each epoch is passed as a separate argument to Python
+# Use IFS to properly split the string into an array
+IFS=' ' read -ra EPOCHS_ARRAY <<< "$EPOCHS"
+echo "Epochs array: ${EPOCHS_ARRAY[@]}"
+echo "Number of epochs: ${#EPOCHS_ARRAY[@]}"
 python3 examples/cloud_gsm8k/test_checkpoint_ensemble.py \
     --checkpoint-dir "$CHECKPOINT_DIR" \
-    --epochs $EPOCHS \
+    --epochs "${EPOCHS_ARRAY[@]}" \
     --batch-size "$BATCH_SIZE" \
     --max-new-tokens "$MAX_NEW_TOKENS" \
     --log-dir "/workspace/outputs/grpo/test_logs"
@@ -140,7 +146,9 @@ LOG_DIR="/workspace/outputs/grpo/test_logs"
 ENSEMBLE_LOG_FILES=()
 
 # Find individual checkpoint logs
-for epoch in $EPOCHS; do
+# Use the same array expansion as above
+IFS=' ' read -ra EPOCHS_ARRAY <<< "$EPOCHS"
+for epoch in "${EPOCHS_ARRAY[@]}"; do
     checkpoint_log=$(ls -t "$LOG_DIR"/ensemble_checkpoint_epoch${epoch}.log 2>/dev/null | head -1)
     if [ -n "$checkpoint_log" ] && [ -f "$checkpoint_log" ]; then
         ENSEMBLE_LOG_FILES+=("$checkpoint_log")

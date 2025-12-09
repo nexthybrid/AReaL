@@ -46,6 +46,8 @@ CHECKPOINT_DIR="${1:-}"
 EPOCHS="${2:-4 9 14 19 24}"
 BATCH_SIZE="${TEST_BATCH_SIZE:-32}"
 MAX_NEW_TOKENS=512
+N_SAMPLES="${N_SAMPLES:-1}"  # Number of samples per checkpoint (default: 1, use >1 for self-consistency)
+TEMPERATURE="${TEMPERATURE:-0.0}"  # Temperature for sampling (default: 0.0 = greedy)
 LOG_FILE="${3:-}"
 
 # Function to find checkpoint directory from log file
@@ -114,6 +116,8 @@ echo "Using checkpoint directory: $CHECKPOINT_DIR"
 echo "Testing epochs: $EPOCHS"
 echo "Batch size: $BATCH_SIZE"
 echo "Max new tokens: $MAX_NEW_TOKENS"
+echo "Samples per checkpoint: $N_SAMPLES"
+echo "Temperature: $TEMPERATURE"
 echo ""
 
 # Run the ensemble testing script
@@ -128,6 +132,8 @@ python3 examples/cloud_gsm8k/test_checkpoint_ensemble.py \
     --epochs "${EPOCHS_ARRAY[@]}" \
     --batch-size "$BATCH_SIZE" \
     --max-new-tokens "$MAX_NEW_TOKENS" \
+    --n-samples "$N_SAMPLES" \
+    --temperature "$TEMPERATURE" \
     --log-dir "/workspace/outputs/grpo/test_logs"
 
 TEST_EXIT_CODE=$?

@@ -84,6 +84,8 @@ def test_checkpoint(
     max_new_tokens: int = 512,
     batch_size: int = 32,
     log_dir: Optional[str] = None,
+    n_samples: int = 1,
+    temperature: float = 0.0,
 ) -> List[Dict]:
     """
     Test a single checkpoint on the full GSM8K test set.
@@ -121,6 +123,8 @@ def test_checkpoint(
     dataset = load_dataset("openai/gsm8k", "main", split="test")
     num_samples = len(dataset)
     _log(f"Testing on FULL dataset: {num_samples} samples")
+    if n_samples > 1:
+        _log(f"Generating {n_samples} samples per question (temperature={temperature})")
     
     results = []
     dataset_subset = list(dataset)
@@ -163,15 +167,34 @@ def test_checkpoint(
         # Store input lengths for decoding
         input_lengths = (batch_inputs != tokenizer.pad_token_id).sum(dim=1).cpu().tolist()
         
-        # Generate in batch
+        # Generate in batch (with multiple samples if n_samples > 1)
         with torch.no_grad():
-            gen_kwargs = {
-                "max_new_tokens": max_new_tokens,
-                "do_sample": False,  # Greedy decoding
-                "pad_token_id": tokenizer.pad_token_id,
-                "eos_token_id": tokenizer.eos_token_id,
-            }
-            batch_outputs = model.generate(batch_inputs, **gen_kwargs)
+            if n_samples > 1:
+                # For multiple samples, we need to expand the batch and generate separately
+                # This is because num_return_sequences creates a flattened output
+                all_batch_outputs = []
+                for batch_idx in range(batch_size_actual):
+                    single_input = batch_inputs[batch_idx:batch_idx+1]
+                    gen_kwargs = {
+                        "max_new_tokens": max_new_tokens,
+                        "do_sample": temperature > 0.0,
+                        "num_return_sequences": n_samples,
+                        "pad_token_id": tokenizer.pad_token_id,
+                        "eos_token_id": tokenizer.eos_token_id,
+                    }
+                    if temperature > 0.0:
+                        gen_kwargs["temperature"] = temperature
+                    single_outputs = model.generate(single_input, **gen_kwargs)
+                    all_batch_outputs.append(single_outputs)
+            else:
+                # Single sample per question - standard batch generation
+                gen_kwargs = {
+                    "max_new_tokens": max_new_tokens,
+                    "do_sample": False,  # Greedy decoding
+                    "pad_token_id": tokenizer.pad_token_id,
+                    "eos_token_id": tokenizer.eos_token_id,
+                }
+                all_batch_outputs = [model.generate(batch_inputs, **gen_kwargs)]
         
         # Decode each output
         for batch_idx, sample in enumerate(batch_samples):
@@ -179,20 +202,53 @@ def test_checkpoint(
             question = batch_questions[batch_idx]
             correct_answer = batch_correct_answers[batch_idx]
             
-            # Extract generated tokens
-            input_len = input_lengths[batch_idx]
-            generated_token_ids = batch_outputs[batch_idx][input_len:]
-            generated_text = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
+            # Collect all samples for this question
+            extracted_answers_list = []
+            generated_texts_list = []
             
-            # Extract answer from generated text
-            extracted_answer = extract_answer_from_text(generated_text)
+            if n_samples > 1:
+                # Get outputs for this batch item
+                batch_outputs = all_batch_outputs[batch_idx]
+                input_len = input_lengths[batch_idx]
+                
+                for sample_num in range(n_samples):
+                    if sample_num < len(batch_outputs):
+                        # Extract generated tokens
+                        generated_token_ids = batch_outputs[sample_num][input_len:]
+                        generated_text = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
+                        
+                        # Extract answer from generated text
+                        extracted_answer = extract_answer_from_text(generated_text)
+                        
+                        extracted_answers_list.append(extracted_answer)
+                        generated_texts_list.append(generated_text)
+            else:
+                # Single sample
+                batch_outputs = all_batch_outputs[0]
+                input_len = input_lengths[batch_idx]
+                generated_token_ids = batch_outputs[batch_idx][input_len:]
+                generated_text = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
+                extracted_answer = extract_answer_from_text(generated_text)
+                
+                extracted_answers_list.append(extracted_answer)
+                generated_texts_list.append(generated_text)
             
-            results.append({
-                "question": question,
-                "correct_answer": correct_answer,
-                "generated_text": generated_text,
-                "extracted_answer": extracted_answer,
-            })
+            # Store results
+            if n_samples > 1:
+                results.append({
+                    "question": question,
+                    "correct_answer": correct_answer,
+                    "generated_texts": generated_texts_list,  # List of all generated texts
+                    "extracted_answers": extracted_answers_list,  # List of all extracted answers
+                    "extracted_answer": extracted_answers_list[0] if extracted_answers_list else None,  # First one for compatibility
+                })
+            else:
+                results.append({
+                    "question": question,
+                    "correct_answer": correct_answer,
+                    "generated_text": generated_texts_list[0] if generated_texts_list else None,
+                    "extracted_answer": extracted_answers_list[0] if extracted_answers_list else None,
+                })
         
         # Log progress
         if (batch_end) % 100 == 0 or batch_end >= num_samples:
@@ -239,6 +295,7 @@ def evaluate_ensemble(
     all_results: Dict[int, List[Dict]],
     checkpoint_epochs: List[int],
     log_dir: Optional[str] = None,
+    n_samples_per_checkpoint: int = 1,
 ) -> Dict:
     """
     Perform majority voting and evaluate ensemble accuracy.
@@ -267,6 +324,9 @@ def evaluate_ensemble(
     _log(f"\n{'='*80}")
     _log(f"ENSEMBLE MAJORITY VOTING")
     _log(f"Checkpoints: {checkpoint_epochs}")
+    if n_samples_per_checkpoint > 1:
+        _log(f"Samples per checkpoint: {n_samples_per_checkpoint}")
+        _log(f"Total votes per question: {len(checkpoint_epochs) * n_samples_per_checkpoint}")
     _log(f"{'='*80}\n")
     
     # Verify all checkpoints have same number of results
@@ -296,16 +356,35 @@ def evaluate_ensemble(
                 question = result["question"]
                 correct_answer = result["correct_answer"]
             
-            extracted_answer = result.get("extracted_answer")
-            answers_by_epoch[epoch] = extracted_answer
+            # Handle multiple samples per checkpoint
+            if "extracted_answers" in result:
+                # Multiple samples from this checkpoint
+                extracted_answers = result.get("extracted_answers", [])
+                answers_by_epoch[epoch] = extracted_answers  # Store as list
+            else:
+                # Single sample
+                extracted_answer = result.get("extracted_answer")
+                answers_by_epoch[epoch] = [extracted_answer] if extracted_answer else []
         
-        # Get default answer (from latest checkpoint)
-        default_answer = answers_by_epoch[latest_epoch]
+        # Flatten all answers into a single list for voting
+        all_answers = []
+        for epoch in checkpoint_epochs:
+            epoch_answers = answers_by_epoch.get(epoch, [])
+            if isinstance(epoch_answers, list):
+                all_answers.extend(epoch_answers)
+            else:
+                all_answers.append(epoch_answers)
         
-        # Collect all answers for voting
-        all_answers = [answers_by_epoch[epoch] for epoch in checkpoint_epochs]
+        # Get default answer (from latest checkpoint, use first sample if multiple)
+        default_answer = None
+        if latest_epoch in answers_by_epoch:
+            latest_answers = answers_by_epoch[latest_epoch]
+            if isinstance(latest_answers, list) and len(latest_answers) > 0:
+                default_answer = latest_answers[0]
+            else:
+                default_answer = latest_answers
         
-        # Perform majority voting
+        # Perform majority voting across all answers (from all checkpoints and all samples)
         ensemble_answer = majority_vote(all_answers, default_answer)
         
         # Check correctness using AReaL's math parser
@@ -413,6 +492,18 @@ def main():
         default="epoch{epoch}epochstep*globalstep*",
         help="Pattern to match checkpoint directories (default: epoch{epoch}epochstep*globalstep*)",
     )
+    parser.add_argument(
+        "--n-samples",
+        type=int,
+        default=1,
+        help="Number of samples to generate per checkpoint per question (default: 1). Use >1 for self-consistency voting.",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Temperature for sampling (default: 0.0 = greedy). Use >0.0 with --n-samples >1 for diverse samples.",
+    )
     
     args = parser.parse_args()
     
@@ -459,6 +550,8 @@ def main():
             max_new_tokens=args.max_new_tokens,
             batch_size=args.batch_size,
             log_dir=args.log_dir,
+            n_samples=args.n_samples,
+            temperature=args.temperature,
         )
         all_results[epoch] = results
     
@@ -471,6 +564,7 @@ def main():
         all_results=all_results,
         checkpoint_epochs=sorted_epochs,
         log_dir=args.log_dir,
+        n_samples_per_checkpoint=args.n_samples,
     )
     
     # Print summary

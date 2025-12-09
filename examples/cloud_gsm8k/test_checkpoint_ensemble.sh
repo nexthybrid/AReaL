@@ -49,6 +49,11 @@ MAX_NEW_TOKENS=512
 N_SAMPLES="${N_SAMPLES:-1}"  # Number of samples per checkpoint (default: 1, use >1 for self-consistency)
 TEMPERATURE="${TEMPERATURE:-0.0}"  # Temperature for sampling (default: 0.0 = greedy)
 SUB_BATCH_SIZE="${SUB_BATCH_SIZE:-}"  # Sub-batch size for multi-sample generation (default: auto, ~16 for A100)
+# If SUB_BATCH_SIZE is set and larger than BATCH_SIZE, increase BATCH_SIZE to match
+if [ -n "$SUB_BATCH_SIZE" ] && [ "$SUB_BATCH_SIZE" -gt "$BATCH_SIZE" ]; then
+    echo "⚠️  SUB_BATCH_SIZE ($SUB_BATCH_SIZE) > BATCH_SIZE ($BATCH_SIZE). Increasing BATCH_SIZE to $SUB_BATCH_SIZE for optimal GPU utilization."
+    BATCH_SIZE="$SUB_BATCH_SIZE"
+fi
 LOG_FILE="${3:-}"
 
 # Function to find checkpoint directory from log file
@@ -119,6 +124,11 @@ echo "Batch size: $BATCH_SIZE"
 echo "Max new tokens: $MAX_NEW_TOKENS"
 echo "Samples per checkpoint: $N_SAMPLES"
 echo "Temperature: $TEMPERATURE"
+if [ -n "$SUB_BATCH_SIZE" ]; then
+    echo "Sub-batch size: $SUB_BATCH_SIZE"
+else
+    echo "Sub-batch size: (auto-detect)"
+fi
 echo ""
 
 # Run the ensemble testing script

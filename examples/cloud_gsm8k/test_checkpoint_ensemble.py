@@ -183,7 +183,12 @@ def test_checkpoint(
                     # For smaller GPUs, reduce this or set via environment variable
                     sub_batch_size = max(1, min(16, batch_size_actual))  # Process up to 16 questions at a time
                 else:
-                    sub_batch_size = min(sub_batch_size, batch_size_actual)
+                    # Cap sub_batch_size to batch_size_actual since we can't process more questions than we have
+                    # But warn if user requested larger value
+                    if sub_batch_size > batch_size_actual:
+                        _log(f"⚠️  WARNING: Requested sub_batch_size={sub_batch_size} but batch_size={batch_size_actual}. "
+                             f"Capping to {batch_size_actual}. To use larger sub_batch_size, increase --batch-size.")
+                    sub_batch_size = max(1, min(sub_batch_size, batch_size_actual))
                 all_batch_outputs = []
                 batch_num = batch_start // batch_size + 1
                 total_batches = (num_samples + batch_size - 1) // batch_size

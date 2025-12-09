@@ -569,6 +569,143 @@ bash -c "set -e && pip config set global.index-url https://pypi.org/simple && pi
 4. **Resume capability**: If interrupted, the script will resume from where it left off automatically
 5. **Auto-upload all logs**: Configure auto-upload to receive all interval test results via email
 
+### Ensemble Testing: Combining Multiple Checkpoints with Majority Voting
+
+The `test_checkpoint_ensemble.sh` script performs **ensemble testing** by combining predictions from multiple checkpoints using majority voting. This can improve accuracy by leveraging the strengths of different training stages.
+
+#### What is Ensemble Testing?
+
+Instead of using a single checkpoint to answer questions, ensemble testing:
+1. **Loads multiple checkpoints** (e.g., epochs 4, 9, 14, 19, 24)
+2. **Generates answers** from each checkpoint for all test questions
+3. **Performs majority voting** to select the most common answer
+4. **Uses tie-breaking** (latest checkpoint) when answers are tied
+5. **Calculates ensemble accuracy** across all questions
+
+This approach often achieves **higher accuracy** than any single checkpoint alone.
+
+#### Usage
+
+**Basic ensemble testing:**
+```bash
+# Test with default epochs (4, 9, 14, 19, 24)
+bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh /workspace/outputs/grpo/checkpoints/root/experiment/trial/default
+```
+
+**With custom epochs:**
+```bash
+# Test specific epochs
+bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh /workspace/outputs/grpo/checkpoints/root/experiment/trial/default "4 9 14"
+```
+
+**Auto-detect checkpoint directory from training log:**
+```bash
+# Script will find checkpoint directory from log file
+bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh "" "" examples/cloud_gsm8k/train_logs/logs_25epochs.txt
+```
+
+#### Configuration Options
+
+**Environment Variables:**
+
+```bash
+# Number of samples per checkpoint (default: 1, use >1 for self-consistency)
+export N_SAMPLES=5  # Generate 5 samples per checkpoint, then vote
+
+# Temperature for sampling (default: 0.0 = greedy)
+export TEMPERATURE=0.7  # Use with N_SAMPLES > 1 for diverse samples
+
+# Batch size for testing (default: 32)
+export TEST_BATCH_SIZE=128  # Larger batch = faster but more memory
+
+# Sub-batch size for multi-sample generation (default: auto, ~16 for A100)
+export SUB_BATCH_SIZE=128  # For A100 80GB, use 64-128 for optimal GPU utilization
+```
+
+**Performance Optimization:**
+
+For **A100 80GB** with `N_SAMPLES=5`:
+- **Recommended**: `SUB_BATCH_SIZE=64` (320 sequences in parallel)
+- **Maximum**: `SUB_BATCH_SIZE=128` (640 sequences in parallel)
+- **Note**: The script automatically increases `BATCH_SIZE` to match `SUB_BATCH_SIZE` if needed
+
+See `SUB_BATCH_SIZE_GUIDE.md` for detailed recommendations.
+
+#### Example: Running Ensemble Testing in RunPod Container Starter
+
+To run ensemble testing automatically after training completes:
+
+```bash
+bash -c "set -e && pip config set global.index-url https://pypi.org/simple && pip config set global.extra-index-url '' && cd /workspace && if [ -d AReaL/.git ]; then cd AReaL && git fetch origin && git checkout -B DL4Math origin/DL4Math 2>/dev/null || git checkout -B DL4Math origin/DL4Math 2>/dev/null || (cd .. && rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git); else rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git; fi && cd /workspace/AReaL && (python3 -c 'import areal' 2>/dev/null || pip install -e .) && export WANDB_API_KEY=\$WANDB_API_KEY && bash examples/cloud_gsm8k/run_training_cloud.sh standard_1000samples_2GPUs_v3_conservative 25 && export SUB_BATCH_SIZE=128 N_SAMPLES=5 && bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh \"\" \"\" examples/cloud_gsm8k/train_logs/logs_25epochs.txt"
+```
+
+**With self-consistency (multiple samples per checkpoint):**
+```bash
+bash -c "... && export SUB_BATCH_SIZE=128 N_SAMPLES=5 TEMPERATURE=0.7 && bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh \"\" \"\" examples/cloud_gsm8k/train_logs/logs_25epochs.txt"
+```
+
+#### How Ensemble Testing Works
+
+1. **Loads each checkpoint** sequentially (e.g., epoch 4, then 9, then 14, etc.)
+2. **Generates answers** for all 1319 test questions from each checkpoint
+3. **Saves individual results** to log files (one per checkpoint)
+4. **Performs majority voting** across all checkpoints for each question
+5. **Calculates ensemble accuracy** and saves final results
+
+**Memory-efficient approach**: Loads one checkpoint at a time, processes all questions, then moves to the next checkpoint. This prevents OOM errors even with large models.
+
+#### Ensemble Testing Log Files
+
+**Individual checkpoint logs:**
+```
+ensemble_checkpoint_epoch4.log
+ensemble_checkpoint_epoch9.log
+ensemble_checkpoint_epoch14.log
+...
+```
+
+**Final majority voting log:**
+```
+ensemble_majority_voting_YYYYMMDD_HHMMSS.log
+```
+
+All logs are saved to `/workspace/outputs/grpo/test_logs/` and are automatically uploaded if auto-upload is configured.
+
+#### Performance Considerations
+
+**Single sample mode** (`N_SAMPLES=1`):
+- Fastest: ~15 minutes per checkpoint
+- Lower accuracy potential
+- Recommended for quick testing
+
+**Multi-sample mode** (`N_SAMPLES=5`):
+- Slower: ~75 minutes per checkpoint (5x slower)
+- Higher accuracy potential (self-consistency + ensemble)
+- **Requires `SUB_BATCH_SIZE` optimization** for reasonable speed
+- Recommended for final evaluation
+
+**GPU Utilization:**
+- With `SUB_BATCH_SIZE=128` and `N_SAMPLES=5`: ~80-90% GPU utilization
+- With default settings: ~20-30% GPU utilization (much slower)
+
+#### Best Practices
+
+1. **Use ensemble testing for final evaluation**: After identifying best individual checkpoints
+2. **Start with single sample mode**: Test quickly with `N_SAMPLES=1`, then use `N_SAMPLES=5` for final results
+3. **Optimize SUB_BATCH_SIZE**: For A100 80GB, use 64-128 for best performance
+4. **Monitor GPU utilization**: Use `nvidia-smi` to ensure GPU is well-utilized
+5. **Auto-upload results**: Configure auto-upload to receive ensemble results via email
+6. **Compare with individual checkpoints**: Ensemble accuracy should be ≥ best individual checkpoint
+
+#### Example Results
+
+Typical ensemble testing results:
+- **Individual checkpoint accuracies**: 56-60% (varies by epoch)
+- **Ensemble accuracy**: 64-66% (improvement from majority voting)
+- **Improvement**: +4-6% over best individual checkpoint
+
+The ensemble approach leverages the diversity of different training stages to achieve better overall performance.
+
 ## Step 11: Network Volume Size Recommendations
 
 ### Recommended Volume Sizes by Training Config

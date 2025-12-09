@@ -125,6 +125,9 @@ def test_checkpoint(
     _log(f"Testing on FULL dataset: {num_samples} samples")
     if n_samples > 1:
         _log(f"Generating {n_samples} samples per question (temperature={temperature})")
+        _log(f"⚠️  WARNING: Multi-sample mode is {n_samples}x slower!")
+        _log(f"   Estimated time: ~{n_samples * 15} minutes per checkpoint")
+        _log(f"   Progress will be logged every 5 questions to show it's working...")
     
     results = []
     dataset_subset = list(dataset)
@@ -170,9 +173,13 @@ def test_checkpoint(
         # Generate in batch (with multiple samples if n_samples > 1)
         with torch.no_grad():
             if n_samples > 1:
-                # For multiple samples, we need to expand the batch and generate separately
-                # This is because num_return_sequences creates a flattened output
+                # For multiple samples, we need to generate separately for each item
+                # This is slower but necessary when using num_return_sequences
                 all_batch_outputs = []
+                batch_num = batch_start // batch_size + 1
+                total_batches = (num_samples + batch_size - 1) // batch_size
+                _log(f"  Batch {batch_num}/{total_batches}: Generating {n_samples} samples for {batch_size_actual} questions...")
+                
                 for batch_idx in range(batch_size_actual):
                     single_input = batch_inputs[batch_idx:batch_idx+1]
                     gen_kwargs = {
@@ -184,8 +191,15 @@ def test_checkpoint(
                     }
                     if temperature > 0.0:
                         gen_kwargs["temperature"] = temperature
+                    
+                    # Log progress every 5 items to show it's working (important for long runs)
+                    if batch_idx > 0 and batch_idx % 5 == 0:
+                        _log(f"    Batch {batch_num}: {batch_idx}/{batch_size_actual} questions processed...")
+                    
                     single_outputs = model.generate(single_input, **gen_kwargs)
                     all_batch_outputs.append(single_outputs)
+                
+                _log(f"    Batch {batch_num}: Completed {batch_size_actual}/{batch_size_actual} questions")
             else:
                 # Single sample per question - standard batch generation
                 gen_kwargs = {
@@ -253,6 +267,9 @@ def test_checkpoint(
         # Log progress
         if (batch_end) % 100 == 0 or batch_end >= num_samples:
             _log(f"Progress: {batch_end}/{num_samples} samples processed")
+        elif n_samples > 1 and (batch_end) % 10 == 0:
+            # More frequent logging for multi-sample mode since it's slower
+            _log(f"Progress: {batch_end}/{num_samples} samples processed (multi-sample mode is slower)")
     
     _log(f"\nCompleted testing checkpoint {checkpoint_name}")
     _log(f"Results saved to: {log_path}")

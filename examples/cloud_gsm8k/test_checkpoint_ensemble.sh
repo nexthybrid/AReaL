@@ -48,6 +48,7 @@ BATCH_SIZE="${TEST_BATCH_SIZE:-32}"
 MAX_NEW_TOKENS=512
 N_SAMPLES="${N_SAMPLES:-1}"  # Number of samples per checkpoint (default: 1, use >1 for self-consistency)
 TEMPERATURE="${TEMPERATURE:-0.0}"  # Temperature for sampling (default: 0.0 = greedy)
+SUB_BATCH_SIZE="${SUB_BATCH_SIZE:-}"  # Sub-batch size for multi-sample generation (default: auto, ~16 for A100)
 LOG_FILE="${3:-}"
 
 # Function to find checkpoint directory from log file
@@ -134,6 +135,7 @@ python3 examples/cloud_gsm8k/test_checkpoint_ensemble.py \
     --max-new-tokens "$MAX_NEW_TOKENS" \
     --n-samples "$N_SAMPLES" \
     --temperature "$TEMPERATURE" \
+    ${SUB_BATCH_SIZE:+--sub-batch-size "$SUB_BATCH_SIZE"} \
     --log-dir "/workspace/outputs/grpo/test_logs"
 
 TEST_EXIT_CODE=$?

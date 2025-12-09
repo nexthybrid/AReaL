@@ -86,6 +86,7 @@ def test_checkpoint(
     log_dir: Optional[str] = None,
     n_samples: int = 1,
     temperature: float = 0.0,
+    sub_batch_size: Optional[int] = None,
 ) -> List[Dict]:
     """
     Test a single checkpoint on the full GSM8K test set.
@@ -173,31 +174,50 @@ def test_checkpoint(
         # Generate in batch (with multiple samples if n_samples > 1)
         with torch.no_grad():
             if n_samples > 1:
-                # For multiple samples, we need to generate separately for each item
-                # This is slower but necessary when using num_return_sequences
+                # Optimized: Process multiple questions in parallel sub-batches
+                # This better utilizes GPU by generating multiple questions × samples at once
+                # Sub-batch size: balance between GPU utilization and memory
+                # For A100 80GB, we can handle ~16-32 questions × 5 samples = 80-160 sequences in parallel
+                if sub_batch_size is None:
+                    # Auto-detect: use larger batches for A100 GPUs (80GB VRAM)
+                    # For smaller GPUs, reduce this or set via environment variable
+                    sub_batch_size = max(1, min(16, batch_size_actual))  # Process up to 16 questions at a time
+                else:
+                    sub_batch_size = min(sub_batch_size, batch_size_actual)
                 all_batch_outputs = []
                 batch_num = batch_start // batch_size + 1
                 total_batches = (num_samples + batch_size - 1) // batch_size
-                _log(f"  Batch {batch_num}/{total_batches}: Generating {n_samples} samples for {batch_size_actual} questions...")
+                _log(f"  Batch {batch_num}/{total_batches}: Generating {n_samples} samples for {batch_size_actual} questions (sub-batch size: {sub_batch_size})...")
                 
-                for batch_idx in range(batch_size_actual):
-                    single_input = batch_inputs[batch_idx:batch_idx+1]
-                    gen_kwargs = {
-                        "max_new_tokens": max_new_tokens,
-                        "do_sample": temperature > 0.0,
-                        "num_return_sequences": n_samples,
-                        "pad_token_id": tokenizer.pad_token_id,
-                        "eos_token_id": tokenizer.eos_token_id,
-                    }
-                    if temperature > 0.0:
-                        gen_kwargs["temperature"] = temperature
+                gen_kwargs = {
+                    "max_new_tokens": max_new_tokens,
+                    "do_sample": temperature > 0.0,
+                    "num_return_sequences": n_samples,
+                    "pad_token_id": tokenizer.pad_token_id,
+                    "eos_token_id": tokenizer.eos_token_id,
+                }
+                if temperature > 0.0:
+                    gen_kwargs["temperature"] = temperature
+                
+                # Process questions in sub-batches for better GPU utilization
+                for sub_start in range(0, batch_size_actual, sub_batch_size):
+                    sub_end = min(sub_start + sub_batch_size, batch_size_actual)
+                    sub_batch_inputs = batch_inputs[sub_start:sub_end]
                     
-                    # Log progress every 5 items to show it's working (important for long runs)
-                    if batch_idx > 0 and batch_idx % 5 == 0:
-                        _log(f"    Batch {batch_num}: {batch_idx}/{batch_size_actual} questions processed...")
+                    # Generate all samples for this sub-batch in parallel
+                    # Output shape: [sub_batch_size * n_samples, seq_len]
+                    sub_batch_outputs = model.generate(sub_batch_inputs, **gen_kwargs)
                     
-                    single_outputs = model.generate(single_input, **gen_kwargs)
-                    all_batch_outputs.append(single_outputs)
+                    # Split outputs back per question (each question has n_samples outputs)
+                    # sub_batch_outputs is flattened: [q1_sample1, q1_sample2, ..., q1_sampleN, q2_sample1, ...]
+                    for q_idx in range(sub_end - sub_start):
+                        q_start = q_idx * n_samples
+                        q_end = (q_idx + 1) * n_samples
+                        all_batch_outputs.append(sub_batch_outputs[q_start:q_end])
+                    
+                    # Log progress
+                    if sub_end % 10 == 0 or sub_end >= batch_size_actual:
+                        _log(f"    Batch {batch_num}: {sub_end}/{batch_size_actual} questions processed...")
                 
                 _log(f"    Batch {batch_num}: Completed {batch_size_actual}/{batch_size_actual} questions")
             else:
@@ -521,6 +541,12 @@ def main():
         default=0.0,
         help="Temperature for sampling (default: 0.0 = greedy). Use >0.0 with --n-samples >1 for diverse samples.",
     )
+    parser.add_argument(
+        "--sub-batch-size",
+        type=int,
+        default=None,
+        help="Sub-batch size for multi-sample generation (default: auto-detect, ~16 for A100). Larger = better GPU utilization but more memory",
+    )
     
     args = parser.parse_args()
     
@@ -569,6 +595,7 @@ def main():
             log_dir=args.log_dir,
             n_samples=args.n_samples,
             temperature=args.temperature,
+            sub_batch_size=getattr(args, 'sub_batch_size', None),
         )
         all_results[epoch] = results
     

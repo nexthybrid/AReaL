@@ -1,0 +1,323 @@
+2025-12-09T18:13:36.877087793Z ==========
+2025-12-09T18:13:36.877103003Z == CUDA ==
+2025-12-09T18:13:36.877111133Z ==========
+2025-12-09T18:13:36.884475398Z CUDA Version 12.9.1
+2025-12-09T18:13:36.887552062Z Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+2025-12-09T18:13:36.890202097Z This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+2025-12-09T18:13:36.890209297Z By pulling and using the container, you accept the terms and conditions of this license:
+2025-12-09T18:13:36.890215377Z https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+2025-12-09T18:13:36.890226447Z A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+2025-12-09T18:13:37.107805602Z Writing to /root/.config/pip/pip.conf
+2025-12-09T18:13:37.304363860Z Writing to /root/.config/pip/pip.conf
+2025-12-09T18:13:37.336042407Z Cloning into 'AReaL'...
+2025-12-09T18:13:40.629113254Z Updating files:  55% (453/815)Updating files:  56% (457/815)Updating files:  57% (465/815)Updating files:  58% (473/815)Updating files:  59% (481/815)Updating files:  60% (489/815)Updating files:  61% (498/815)Updating files:  62% (506/815)Updating files:  63% (514/815)Updating files:  64% (522/815)Updating files:  65% (530/815)Updating files:  66% (538/815)Updating files:  67% (547/815)Updating files:  68% (555/815)Updating files:  69% (563/815)Updating files:  70% (571/815)Updating files:  71% (579/815)Updating files:  72% (587/815)Updating files:  73% (595/815)Updating files:  74% (604/815)Updating files:  75% (612/815)Updating files:  76% (620/815)Updating files:  77% (628/815)Updating files:  78% (636/815)Updating files:  79% (644/815)Updating files:  80% (652/815)Updating files:  81% (661/815)Updating files:  82% (669/815)Updating files:  83% (677/815)Updating files:  84% (685/815)Updating files:  85% (693/815)Updating files:  86% (701/815)Updating files:  87% (710/815)Updating files:  88% (718/815)Updating files:  89% (726/815)Updating files:  90% (734/815)Updating files:  91% (742/815)Updating files:  92% (750/815)Updating files:  93% (758/815)Updating files:  94% (767/815)Updating files:  95% (775/815)Updating files:  96% (783/815)Updating files:  97% (791/815)Updating files:  98% (799/815)Updating files:  99% (807/815)Updating files: 100% (815/815)Updating files: 100% (815/815), done.
+2025-12-09T18:13:41.487089442Z Using checkpoint directory: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default
+2025-12-09T18:13:41.487268441Z Testing epochs: 4
+2025-12-09T18:13:41.487277891Z Batch size: 128
+2025-12-09T18:13:41.487284451Z Max new tokens: 512
+2025-12-09T18:13:41.487290761Z Samples per checkpoint: 5
+2025-12-09T18:13:41.487298451Z Temperature: 0.7
+2025-12-09T18:13:41.487304031Z Sub-batch size: 128
+2025-12-09T18:13:41.487322021Z Epochs array: 4
+2025-12-09T18:13:41.487327921Z Number of epochs: 1
+2025-12-09T18:13:42.322336584Z /usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:63: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+2025-12-09T18:13:42.322384994Z   import pynvml  # type: ignore[import]
+2025-12-09T18:13:47.909039764Z /workspace/AReaL/areal/reward/math_parser.py:290: SyntaxWarning: invalid escape sequence '\%'
+2025-12-09T18:13:47.909119653Z   string = string.replace("\%", "")
+2025-12-09T18:13:47.909433513Z /workspace/AReaL/areal/reward/math_parser.py:412: SyntaxWarning: invalid escape sequence '\d'
+2025-12-09T18:13:47.909450183Z   pattern = "-?\d*\.?\d+"
+2025-12-09T18:13:48.517772639Z Using device: cuda
+2025-12-09T18:13:48.517817568Z Epoch 4: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:13:48.517863468Z ================================================================================
+2025-12-09T18:13:48.517870028Z Testing checkpoint for epoch 4
+2025-12-09T18:13:48.517886308Z ================================================================================
+2025-12-09T18:13:48.517908028Z ================================================================================
+2025-12-09T18:13:48.517913458Z Testing checkpoint: epoch4
+2025-12-09T18:13:48.517918928Z Checkpoint path: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:13:48.517926288Z ================================================================================
+2025-12-09T18:13:48.520792272Z `torch_dtype` is deprecated! Use `dtype` instead!
+2025-12-09T18:13:50.343054885Z Loading model from: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:13:50.343096555Z Model loaded and set to eval mode
+2025-12-09T18:13:52.118905751Z Generating train split:   0%|          | 0/7473 [00:00<?, ? examples/s]Generating train split: 100%|██████████| 7473/7473 [00:00<00:00, 304962.38 examples/s]
+2025-12-09T18:13:52.125257938Z Generating test split:   0%|          | 0/1319 [00:00<?, ? examples/s]Generating test split: 100%|██████████| 1319/1319 [00:00<00:00, 230858.24 examples/s]
+2025-12-09T18:13:52.130139678Z Testing on FULL dataset: 1319 samples
+2025-12-09T18:13:52.130227238Z Generating 5 samples per question (temperature=0.7)
+2025-12-09T18:13:52.130279418Z ⚠️  WARNING: Multi-sample mode is 5x slower!
+2025-12-09T18:13:52.130317938Z    Estimated time: ~75 minutes per checkpoint
+2025-12-09T18:13:52.130393398Z    Progress will be logged every 5 questions to show it's working...
+2025-12-09T18:13:52.175918677Z Processing 1319 samples in batches of 128...
+2025-12-09T18:13:52.260101209Z   Batch 1/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:14:50.233918666Z     Batch 1: 128/128 questions processed...
+2025-12-09T18:14:50.234090605Z     Batch 1: Completed 128/128 questions
+2025-12-09T18:14:50.967907611Z   Batch 2/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:15:49.154740612Z     Batch 2: 128/128 questions processed...
+2025-12-09T18:15:49.154960861Z     Batch 2: Completed 128/128 questions
+2025-12-09T18:15:49.877769559Z   Batch 3/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:16:47.162253541Z     Batch 3: 128/128 questions processed...
+2025-12-09T18:16:47.162424541Z     Batch 3: Completed 128/128 questions
+2025-12-09T18:16:47.882161954Z   Batch 4/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:17:46.751342273Z     Batch 4: 128/128 questions processed...
+2025-12-09T18:17:46.751390883Z     Batch 4: Completed 128/128 questions
+2025-12-09T18:17:47.464255210Z   Batch 5/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:18:44.478751852Z     Batch 5: 128/128 questions processed...
+2025-12-09T18:18:44.478848262Z     Batch 5: Completed 128/128 questions
+2025-12-09T18:18:45.174972933Z Progress: 640/1319 samples processed (multi-sample mode is slower)
+2025-12-09T18:18:45.198450196Z   Batch 6/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:19:43.562380335Z     Batch 6: 128/128 questions processed...
+2025-12-09T18:19:43.562448195Z     Batch 6: Completed 128/128 questions
+2025-12-09T18:19:44.279450134Z   Batch 7/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:20:42.016928062Z     Batch 7: 128/128 questions processed...
+2025-12-09T18:20:42.016989262Z     Batch 7: Completed 128/128 questions
+2025-12-09T18:20:42.722272304Z   Batch 8/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:21:41.597663881Z     Batch 8: 128/128 questions processed...
+2025-12-09T18:21:41.597726061Z     Batch 8: Completed 128/128 questions
+2025-12-09T18:21:42.318309683Z   Batch 9/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:22:45.651286133Z     Batch 9: 128/128 questions processed...
+2025-12-09T18:22:45.651329403Z     Batch 9: Completed 128/128 questions
+2025-12-09T18:22:46.386083406Z   Batch 10/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:23:47.356429182Z     Batch 10: 128/128 questions processed...
+2025-12-09T18:23:47.356485431Z     Batch 10: Completed 128/128 questions
+2025-12-09T18:23:48.062767622Z Progress: 1280/1319 samples processed (multi-sample mode is slower)
+2025-12-09T18:23:48.070556976Z ⚠️  WARNING: Requested sub_batch_size=128 but batch_size=39. Capping to 39. To use larger sub_batch_size, increase --batch-size.
+2025-12-09T18:23:48.070664316Z   Batch 11/11: Generating 5 samples for 39 questions (sub-batch size: 39)...
+2025-12-09T18:24:10.388085911Z     Batch 11: 39/39 questions processed...
+2025-12-09T18:24:10.388579520Z     Batch 11: Completed 39/39 questions
+2025-12-09T18:24:10.605665527Z Progress: 1319/1319 samples processed
+2025-12-09T18:24:10.605713677Z Completed testing checkpoint epoch4
+2025-12-09T18:24:10.605719887Z Results saved to: /workspace/outputs/grpo/test_logs/ensemble_checkpoint_epoch4.log
+2025-12-09T18:24:10.672219774Z ================================================================================
+2025-12-09T18:24:10.672227054Z Performing majority voting...
+2025-12-09T18:24:10.672235484Z ================================================================================
+2025-12-09T18:24:10.672253654Z ================================================================================
+2025-12-09T18:24:10.673352122Z ENSEMBLE MAJORITY VOTING
+2025-12-09T18:24:10.673382722Z Checkpoints: [4]
+2025-12-09T18:24:10.673389572Z Samples per checkpoint: 5
+2025-12-09T18:24:10.673396392Z Total votes per question: 5
+2025-12-09T18:24:10.673402052Z ================================================================================
+2025-12-09T18:24:10.673418732Z Processing 1319 samples with majority voting...
+2025-12-09T18:24:10.861132757Z Progress: 100/1319 | Correct: 63/100 | Accuracy: 63.00%
+2025-12-09T18:24:11.046663457Z Progress: 200/1319 | Correct: 131/200 | Accuracy: 65.50%
+2025-12-09T18:24:11.233122324Z Progress: 300/1319 | Correct: 197/300 | Accuracy: 65.67%
+2025-12-09T18:24:11.418315655Z Progress: 400/1319 | Correct: 254/400 | Accuracy: 63.50%
+2025-12-09T18:24:11.604463223Z Progress: 500/1319 | Correct: 322/500 | Accuracy: 64.40%
+2025-12-09T18:24:11.789787253Z Progress: 600/1319 | Correct: 387/600 | Accuracy: 64.50%
+2025-12-09T18:24:11.977533839Z Progress: 700/1319 | Correct: 454/700 | Accuracy: 64.86%
+2025-12-09T18:24:12.166255622Z Progress: 800/1319 | Correct: 513/800 | Accuracy: 64.12%
+2025-12-09T18:24:12.357969359Z Progress: 900/1319 | Correct: 580/900 | Accuracy: 64.44%
+2025-12-09T18:24:12.544189667Z Progress: 1000/1319 | Correct: 639/1000 | Accuracy: 63.90%
+2025-12-09T18:24:12.731091354Z Progress: 1100/1319 | Correct: 695/1100 | Accuracy: 63.18%
+2025-12-09T18:24:12.916065505Z Progress: 1200/1319 | Correct: 755/1200 | Accuracy: 62.92%
+2025-12-09T18:24:13.101859624Z Progress: 1300/1319 | Correct: 820/1300 | Accuracy: 63.08%
+2025-12-09T18:24:13.138080782Z Progress: 1319/1319 | Correct: 829/1319 | Accuracy: 62.85%
+2025-12-09T18:24:13.138159022Z ================================================================================
+2025-12-09T18:24:13.138166942Z ENSEMBLE FINAL ACCURACY: 62.85% (829/1319)
+2025-12-09T18:24:13.138179352Z Log saved to: /workspace/outputs/grpo/test_logs/ensemble_majority_voting_20251209_182410.log
+2025-12-09T18:24:13.138190882Z ================================================================================
+2025-12-09T18:24:15.616194836Z Epoch 4 individual accuracy: 56.94% (751/1319)
+2025-12-09T18:24:15.624591169Z ================================================================================
+2025-12-09T18:24:15.624597839Z ENSEMBLE TESTING SUMMARY
+2025-12-09T18:24:15.624604969Z ================================================================================
+2025-12-09T18:24:15.624630019Z Ensemble Accuracy: 62.85% (829/1319)
+2025-12-09T18:24:15.624642529Z Individual Checkpoint Accuracies:
+2025-12-09T18:24:15.624647889Z   Epoch 4: 56.94%
+2025-12-09T18:24:15.624658589Z Detailed log: /workspace/outputs/grpo/test_logs/ensemble_majority_voting_20251209_182410.log
+2025-12-09T18:24:15.624664229Z ================================================================================
+2025-12-09T18:24:17.145984642Z ✅ Ensemble testing completed successfully!
+2025-12-09T18:24:17.145995082Z Check logs in /workspace/outputs/grpo/test_logs/
+2025-12-09T18:24:17.161872151Z ==========================================
+2025-12-09T18:24:17.161943251Z 📤 Auto-uploading ensemble test logs via email...
+2025-12-09T18:24:17.161949471Z ==========================================
+2025-12-09T18:24:17.161956201Z Uploading 2 ensemble test log file(s)...
+2025-12-09T18:24:18.852067937Z Found 2 log file(s) to upload:
+2025-12-09T18:24:18.852113377Z   - ensemble_checkpoint_epoch4.log
+2025-12-09T18:24:18.852120087Z   - ensemble_majority_voting_20251209_182410.log
+2025-12-09T18:24:18.852125877Z 📧 Uploading 2 log files via email to sim.craft.us@gmail.com...
+2025-12-09T18:24:18.852132487Z ✅ Successfully sent 2 log files via email!
+2025-12-09T18:24:18.876270819Z ✅ Successfully uploaded 2 log file(s) via email!
+2025-12-09T18:24:18.876310029Z ==========================================
+2025-12-09T18:24:31.281448079Z ==========
+2025-12-09T18:24:31.281483359Z == CUDA ==
+2025-12-09T18:24:31.281563759Z ==========
+2025-12-09T18:24:31.289239593Z CUDA Version 12.9.1
+2025-12-09T18:24:31.291755198Z Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+2025-12-09T18:24:31.294062054Z This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+2025-12-09T18:24:31.294068744Z By pulling and using the container, you accept the terms and conditions of this license:
+2025-12-09T18:24:31.294073804Z https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+2025-12-09T18:24:31.294083884Z A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+2025-12-09T18:24:31.513535646Z Writing to /root/.config/pip/pip.conf
+2025-12-09T18:24:31.723608286Z Writing to /root/.config/pip/pip.conf
+2025-12-09T18:24:32.714557748Z Branch 'feature/reasoning_model' set up to track remote branch 'feature/reasoning_model' from 'origin'.
+2025-12-09T18:24:32.714588278Z Your branch is up to date with 'origin/feature/reasoning_model'.
+2025-12-09T18:24:32.818081212Z Using checkpoint directory: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default
+2025-12-09T18:24:32.818114612Z Testing epochs: 4
+2025-12-09T18:24:32.818121282Z Batch size: 128
+2025-12-09T18:24:32.818127681Z Max new tokens: 512
+2025-12-09T18:24:32.818134291Z Samples per checkpoint: 5
+2025-12-09T18:24:32.818141441Z Temperature: 0.7
+2025-12-09T18:24:32.818147701Z Sub-batch size: 128
+2025-12-09T18:24:32.818160511Z Epochs array: 4
+2025-12-09T18:24:32.818167351Z Number of epochs: 1
+2025-12-09T18:24:33.624125163Z /usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:63: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+2025-12-09T18:24:33.624163773Z   import pynvml  # type: ignore[import]
+2025-12-09T18:24:39.059262655Z Using device: cuda
+2025-12-09T18:24:39.059317805Z Epoch 4: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:24:39.059329995Z ================================================================================
+2025-12-09T18:24:39.059350695Z Testing checkpoint for epoch 4
+2025-12-09T18:24:39.059357285Z ================================================================================
+2025-12-09T18:24:39.059373115Z ================================================================================
+2025-12-09T18:24:39.059378635Z Testing checkpoint: epoch4
+2025-12-09T18:24:39.059383895Z Checkpoint path: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:24:39.059390245Z ================================================================================
+2025-12-09T18:24:39.062637818Z `torch_dtype` is deprecated! Use `dtype` instead!
+2025-12-09T18:24:40.901864967Z Loading model from: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:24:40.901912017Z Model loaded and set to eval mode
+2025-12-09T18:24:57.985790980Z Testing on FULL dataset: 1319 samples
+2025-12-09T18:24:57.985855120Z Generating 5 samples per question (temperature=0.7)
+2025-12-09T18:24:57.985934460Z ⚠️  WARNING: Multi-sample mode is 5x slower!
+2025-12-09T18:24:57.985968070Z    Estimated time: ~75 minutes per checkpoint
+2025-12-09T18:24:57.986086059Z    Progress will be logged every 5 questions to show it's working...
+2025-12-09T18:24:58.030677010Z Processing 1319 samples in batches of 128...
+2025-12-09T18:24:58.119833272Z   Batch 1/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:25:56.093805288Z     Batch 1: 128/128 questions processed...
+2025-12-09T18:25:56.093917588Z     Batch 1: Completed 128/128 questions
+2025-12-09T18:25:56.827838443Z   Batch 2/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:26:55.050210464Z     Batch 2: 128/128 questions processed...
+2025-12-09T18:26:55.050279463Z     Batch 2: Completed 128/128 questions
+2025-12-09T18:26:55.770509438Z   Batch 3/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:27:53.004477047Z     Batch 3: 128/128 questions processed...
+2025-12-09T18:27:53.004690766Z     Batch 3: Completed 128/128 questions
+2025-12-09T18:27:53.722298486Z   Batch 4/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:28:52.606930037Z     Batch 4: 128/128 questions processed...
+2025-12-09T18:28:52.607115276Z     Batch 4: Completed 128/128 questions
+2025-12-09T18:28:53.325227055Z   Batch 5/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:29:50.275793892Z     Batch 5: 128/128 questions processed...
+2025-12-09T18:29:50.275846822Z     Batch 5: Completed 128/128 questions
+2025-12-09T18:29:50.975742359Z Progress: 640/1319 samples processed (multi-sample mode is slower)
+2025-12-09T18:29:50.998839161Z   Batch 6/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:30:49.253425799Z     Batch 6: 128/128 questions processed...
+2025-12-09T18:30:49.253498329Z     Batch 6: Completed 128/128 questions
+2025-12-09T18:30:49.974244592Z   Batch 7/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:31:47.661756679Z     Batch 7: 128/128 questions processed...
+2025-12-09T18:31:47.661811289Z     Batch 7: Completed 128/128 questions
+2025-12-09T18:31:48.373478231Z   Batch 8/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:32:47.220846359Z     Batch 8: 128/128 questions processed...
+2025-12-09T18:32:47.220923129Z     Batch 8: Completed 128/128 questions
+2025-12-09T18:32:47.941445023Z   Batch 9/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:33:51.151716050Z     Batch 9: 128/128 questions processed...
+2025-12-09T18:33:51.151853780Z     Batch 9: Completed 128/128 questions
+2025-12-09T18:33:51.877615703Z   Batch 10/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:34:52.732272952Z     Batch 10: 128/128 questions processed...
+2025-12-09T18:34:52.732394702Z     Batch 10: Completed 128/128 questions
+2025-12-09T18:34:53.439309624Z Progress: 1280/1319 samples processed (multi-sample mode is slower)
+2025-12-09T18:34:53.448024496Z ⚠️  WARNING: Requested sub_batch_size=128 but batch_size=39. Capping to 39. To use larger sub_batch_size, increase --batch-size.
+2025-12-09T18:34:53.448295895Z   Batch 11/11: Generating 5 samples for 39 questions (sub-batch size: 39)...
+2025-12-09T18:35:15.575077943Z     Batch 11: 39/39 questions processed...
+2025-12-09T18:35:15.575327963Z     Batch 11: Completed 39/39 questions
+2025-12-09T18:35:15.788473490Z Progress: 1319/1319 samples processed
+2025-12-09T18:35:15.788516830Z Completed testing checkpoint epoch4
+2025-12-09T18:35:15.788523130Z Results saved to: /workspace/outputs/grpo/test_logs/ensemble_checkpoint_epoch4.log
+2025-12-09T18:35:15.852899466Z ================================================================================
+2025-12-09T18:35:15.852912766Z Performing majority voting...
+2025-12-09T18:35:15.852920116Z ================================================================================
+2025-12-09T18:35:15.852940196Z ================================================================================
+2025-12-09T18:35:15.854062064Z ENSEMBLE MAJORITY VOTING
+2025-12-09T18:35:15.854936592Z Checkpoints: [4]
+2025-12-09T18:35:15.855901630Z Samples per checkpoint: 5
+2025-12-09T18:35:15.855925470Z Total votes per question: 5
+2025-12-09T18:35:15.855932510Z ================================================================================
+2025-12-09T18:35:15.855950230Z Processing 1319 samples with majority voting...
+2025-12-09T18:35:16.041576635Z Progress: 100/1319 | Correct: 64/100 | Accuracy: 64.00%
+2025-12-09T18:35:16.226850890Z Progress: 200/1319 | Correct: 128/200 | Accuracy: 64.00%
+2025-12-09T18:35:16.411800476Z Progress: 300/1319 | Correct: 194/300 | Accuracy: 64.67%
+2025-12-09T18:35:16.594922575Z Progress: 400/1319 | Correct: 256/400 | Accuracy: 64.00%
+2025-12-09T18:35:16.780433900Z Progress: 500/1319 | Correct: 319/500 | Accuracy: 63.80%
+2025-12-09T18:35:16.965620336Z Progress: 600/1319 | Correct: 384/600 | Accuracy: 64.00%
+2025-12-09T18:35:17.151045770Z Progress: 700/1319 | Correct: 449/700 | Accuracy: 64.14%
+2025-12-09T18:35:17.337231394Z Progress: 800/1319 | Correct: 508/800 | Accuracy: 63.50%
+2025-12-09T18:35:17.522124200Z Progress: 900/1319 | Correct: 574/900 | Accuracy: 63.78%
+2025-12-09T18:35:17.707126146Z Progress: 1000/1319 | Correct: 634/1000 | Accuracy: 63.40%
+2025-12-09T18:35:17.899417566Z Progress: 1100/1319 | Correct: 687/1100 | Accuracy: 62.45%
+2025-12-09T18:35:18.085615630Z Progress: 1200/1319 | Correct: 750/1200 | Accuracy: 62.50%
+2025-12-09T18:35:18.272408432Z Progress: 1300/1319 | Correct: 812/1300 | Accuracy: 62.46%
+2025-12-09T18:35:18.307626618Z Progress: 1319/1319 | Correct: 824/1319 | Accuracy: 62.47%
+2025-12-09T18:35:18.307669158Z ================================================================================
+2025-12-09T18:35:18.307676758Z ENSEMBLE FINAL ACCURACY: 62.47% (824/1319)
+2025-12-09T18:35:18.307687478Z Log saved to: /workspace/outputs/grpo/test_logs/ensemble_majority_voting_20251209_183515.log
+2025-12-09T18:35:18.307693628Z ================================================================================
+2025-12-09T18:35:20.770939013Z Epoch 4 individual accuracy: 56.10% (740/1319)
+2025-12-09T18:35:20.774227136Z ================================================================================
+2025-12-09T18:35:20.774234066Z ENSEMBLE TESTING SUMMARY
+2025-12-09T18:35:20.774241036Z ================================================================================
+2025-12-09T18:35:20.774246726Z Ensemble Accuracy: 62.47% (824/1319)
+2025-12-09T18:35:20.774258486Z Individual Checkpoint Accuracies:
+2025-12-09T18:35:20.774264916Z   Epoch 4: 56.10%
+2025-12-09T18:35:20.774277316Z Detailed log: /workspace/outputs/grpo/test_logs/ensemble_majority_voting_20251209_183515.log
+2025-12-09T18:35:20.774284966Z ================================================================================
+2025-12-09T18:35:22.217591372Z ✅ Ensemble testing completed successfully!
+2025-12-09T18:35:22.217610782Z Check logs in /workspace/outputs/grpo/test_logs/
+2025-12-09T18:35:22.232841560Z ==========================================
+2025-12-09T18:35:22.232846400Z 📤 Auto-uploading ensemble test logs via email...
+2025-12-09T18:35:22.232850080Z ==========================================
+2025-12-09T18:35:22.232852750Z Uploading 2 ensemble test log file(s)...
+2025-12-09T18:35:23.870936125Z Found 2 log file(s) to upload:
+2025-12-09T18:35:23.870976565Z   - ensemble_checkpoint_epoch4.log
+2025-12-09T18:35:23.870983275Z   - ensemble_majority_voting_20251209_183515.log
+2025-12-09T18:35:23.870989515Z 📧 Uploading 2 log files via email to sim.craft.us@gmail.com...
+2025-12-09T18:35:23.870994885Z ✅ Successfully sent 2 log files via email!
+2025-12-09T18:35:23.893285385Z ✅ Successfully uploaded 2 log file(s) via email!
+2025-12-09T18:35:23.893309445Z ==========================================
+2025-12-09T18:35:37.280080852Z ==========
+2025-12-09T18:35:37.280148642Z == CUDA ==
+2025-12-09T18:35:37.280218332Z ==========
+2025-12-09T18:35:37.288380550Z CUDA Version 12.9.1
+2025-12-09T18:35:37.292163149Z Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+2025-12-09T18:35:37.297454865Z This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+2025-12-09T18:35:37.297458635Z By pulling and using the container, you accept the terms and conditions of this license:
+2025-12-09T18:35:37.297461755Z https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+2025-12-09T18:35:37.297467595Z A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+2025-12-09T18:35:37.514602560Z Writing to /root/.config/pip/pip.conf
+2025-12-09T18:35:37.713533404Z Writing to /root/.config/pip/pip.conf
+2025-12-09T18:35:37.911328931Z Branch 'feature/reasoning_model' set up to track remote branch 'feature/reasoning_model' from 'origin'.
+2025-12-09T18:35:37.911351200Z Your branch is up to date with 'origin/feature/reasoning_model'.
+2025-12-09T18:35:38.001778447Z Using checkpoint directory: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default
+2025-12-09T18:35:38.001823307Z Testing epochs: 4
+2025-12-09T18:35:38.001833177Z Batch size: 128
+2025-12-09T18:35:38.001836817Z Max new tokens: 512
+2025-12-09T18:35:38.001839737Z Samples per checkpoint: 5
+2025-12-09T18:35:38.001843177Z Temperature: 0.7
+2025-12-09T18:35:38.001845927Z Sub-batch size: 128
+2025-12-09T18:35:38.001944306Z Epochs array: 4
+2025-12-09T18:35:38.001973356Z Number of epochs: 1
+2025-12-09T18:35:39.087948699Z /usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:63: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+2025-12-09T18:35:39.087982419Z   import pynvml  # type: ignore[import]
+2025-12-09T18:35:45.322087276Z Using device: cuda
+2025-12-09T18:35:45.322114875Z Epoch 4: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:35:45.322127085Z ================================================================================
+2025-12-09T18:35:45.322133385Z Testing checkpoint for epoch 4
+2025-12-09T18:35:45.322138985Z ================================================================================
+2025-12-09T18:35:45.322154545Z ================================================================================
+2025-12-09T18:35:45.322163435Z Testing checkpoint: epoch4
+2025-12-09T18:35:45.322168955Z Checkpoint path: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:35:45.322198565Z ================================================================================
+2025-12-09T18:35:45.325764306Z `torch_dtype` is deprecated! Use `dtype` instead!
+2025-12-09T18:35:47.200520062Z Loading model from: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T18:35:47.200544872Z Model loaded and set to eval mode
+2025-12-09T18:35:48.053913492Z Testing on FULL dataset: 1319 samples
+2025-12-09T18:35:48.053945062Z Generating 5 samples per question (temperature=0.7)
+2025-12-09T18:35:48.053951692Z ⚠️  WARNING: Multi-sample mode is 5x slower!
+2025-12-09T18:35:48.053957112Z    Estimated time: ~75 minutes per checkpoint
+2025-12-09T18:35:48.053980172Z    Progress will be logged every 5 questions to show it's working...
+2025-12-09T18:35:48.077953697Z Processing 1319 samples in batches of 128...
+2025-12-09T18:35:48.144265339Z   Batch 1/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:36:46.569365990Z     Batch 1: 128/128 questions processed...
+2025-12-09T18:36:46.569596489Z     Batch 1: Completed 128/128 questions
+2025-12-09T18:36:47.504300200Z   Batch 2/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:37:46.170587770Z     Batch 2: 128/128 questions processed...
+2025-12-09T18:37:46.170820399Z     Batch 2: Completed 128/128 questions
+2025-12-09T18:37:46.893835490Z   Batch 3/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:38:44.132432039Z     Batch 3: 128/128 questions processed...
+2025-12-09T18:38:44.132497108Z     Batch 3: Completed 128/128 questions
+2025-12-09T18:38:44.848117430Z   Batch 4/11: Generating 5 samples for 128 questions (sub-batch size: 128)...
+2025-12-09T18:39:43.681977868Z     Batch 4: 128/128 questions processed...
+2025-12-09T18:39:43.682161617Z     Batch 4: Completed 128/128 questions
+2025-12-09T18:39:44.404532210Z   Batch 5/11: Generating 5 samples for 128 questions (sub-batch size: 128)...

@@ -2,11 +2,14 @@
 """
 Test script for trained GRPO model on GSM8K dataset (Cloud version).
 This script loads a trained model checkpoint and evaluates it on the GSM8K test set.
+Supports both config-based and direct model-path testing.
 """
 
+import argparse
 import os
 import sys
 import warnings
+from datetime import datetime
 
 # Suppress annoying warnings
 warnings.filterwarnings("ignore", category=FutureWarning, message=".*pynvml.*")
@@ -17,133 +20,341 @@ warnings.filterwarnings("ignore", message=".*Gloo.*Rank.*connected.*")
 # Suppress Gloo messages
 os.environ["GLOG_minloglevel"] = "2"
 
-import torch.distributed as dist
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from areal.api.cli_args import GRPOConfig, load_expr_config
-from areal.dataset import get_custom_dataset
-from areal.engine.sglang_remote import RemoteSGLangEngine
-from areal.utils import seeding, stats_tracker
-from areal.utils.dataloader import create_dataloader
-from areal.utils.hf_utils import load_hf_tokenizer
-from areal.utils.printing import tabulate_stats
-from areal.utils.stats_logger import StatsLogger
-from areal.workflow.rlvr import RLVRWorkflow
+# Ensure AReaL is in the Python path for math_parser
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(script_dir, "../.."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
-
-def gsm8k_reward_fn(prompt, completions, prompt_ids, completion_ids, answer, **kwargs):
-    from areal.reward.math_parser import process_results
-
-    return int(process_results(completions, answer)[0])
+# Import AReaL's math parser for consistent answer extraction
+from areal.reward.math_parser import process_results
 
 
-def main(args):
-    config, _ = load_expr_config(args, GRPOConfig)
-    config: GRPOConfig
-
-    dist.init_process_group("gloo")
-    # Create a group for stats all-reduce.
-    group = dist.new_group()
-
-    rank = int(os.getenv("RANK", "0"))
-    world_size = int(os.getenv("WORLD_SIZE", "1"))
-    tokenizer = load_hf_tokenizer(config.tokenizer_path)
-
-    seeding.set_random_seed(config.seed, key=f"eval{rank}")
-
-    # Create dataset and dataloaders
-    valid_dataset = get_custom_dataset(
-        split="test", dataset_config=config.valid_dataset, tokenizer=tokenizer
-    )
-    
-    # Optional: Limit test samples via environment variable
-    max_test_samples = int(os.getenv("MAX_TEST_SAMPLES", "0"))
-    if max_test_samples > 0 and len(valid_dataset) > max_test_samples:
-        print(f"[EVAL] Limiting test set from {len(valid_dataset)} to {max_test_samples} samples")
-        valid_dataset = valid_dataset.select(range(max_test_samples))
-    
-    valid_dataloader = create_dataloader(
-        valid_dataset,
-        rank=rank,
-        world_size=world_size,
-        dataset_config=config.valid_dataset,
-    )
-
-    # Initialize inference engine
-    config.rollout.max_head_offpolicyness = int(1e12)
-    eval_rollout = RemoteSGLangEngine(config.rollout)
-    eval_rollout.initialize()
-
-    # Create rollout workflow
-    if tokenizer.pad_token_id not in config.gconfig.stop_token_ids:
-        config.gconfig.stop_token_ids.append(tokenizer.pad_token_id)
-    if tokenizer.eos_token_id not in config.gconfig.stop_token_ids:
-        config.gconfig.stop_token_ids.append(tokenizer.eos_token_id)
-    workflow = RLVRWorkflow(
-        reward_fn=gsm8k_reward_fn,
-        gconfig=config.gconfig,
-        tokenizer=tokenizer,
-        enable_thinking=False,
-        rollout_stat_scope="eval-rollout",
-        dump_dir=os.path.join(
-            StatsLogger.get_log_path(config.stats_logger), "generated-eval"
-        ),
-    )
-
-    print(f"Evaluating on {len(valid_dataset)} test samples...")
-    print(f"Using model from: {config.rollout.experiment_name}/{config.rollout.trial_name}")
-
-    # Run evaluation.
-    cnt = 0
-    for data in valid_dataloader:
-        for item in data:
-            eval_rollout.submit(item, workflow)
-            cnt += 1
-    
-    print(f"Submitted {cnt} evaluation tasks. Waiting for completion...")
-    eval_rollout.wait(cnt, timeout=None)
-
-    eval_rollout_stats = stats_tracker.export_all(reduce_group=group)
-    
-    print("\n" + "="*80)
-    print("EVALUATION RESULTS")
-    print("="*80)
-    print(tabulate_stats(eval_rollout_stats))
-    
-    # Extract accuracy from reward stats
-    accuracy = None
-    reward_key = None
-    
-    # Check different possible reward keys
-    for key in ["eval-rollout/task_reward", "eval-rollout/reward", "eval-rollout/final_reward"]:
-        if key in eval_rollout_stats:
-            reward_stats = eval_rollout_stats[key]
-            if isinstance(reward_stats, dict):
-                if "avg" in reward_stats:
-                    accuracy = reward_stats["avg"] * 100
-                    reward_key = key
-                    break
-            elif isinstance(reward_stats, (int, float)):
-                accuracy = reward_stats * 100 if reward_stats <= 1.0 else reward_stats
-                reward_key = key
-                break
-    
-    if accuracy is not None:
-        print(f"\n{'='*80}")
-        print(f"ACCURACY: {accuracy:.2f}%")
-        print(f"{'='*80}\n")
+def load_model_from_checkpoint(checkpoint_path: str, device: torch.device):
+    """Load model from GRPO checkpoint."""
+    if os.path.isdir(checkpoint_path):
+        config_path = os.path.join(checkpoint_path, "config.json")
+        if os.path.exists(config_path):
+            print(f"[INFO] Loading model from checkpoint directory: {checkpoint_path}")
+            tokenizer = AutoTokenizer.from_pretrained(checkpoint_path, trust_remote_code=True)
+            model = AutoModelForCausalLM.from_pretrained(
+                checkpoint_path,
+                torch_dtype=torch.bfloat16 if device.type == "cuda" else torch.float32,
+                trust_remote_code=True,
+            )
+            return model, tokenizer
+        else:
+            raise ValueError(
+                f"Checkpoint directory {checkpoint_path} does not contain config.json. "
+                f"Expected a HuggingFace-format checkpoint."
+            )
     else:
-        print(f"\n{'='*80}")
-        print("WARNING: Could not extract accuracy from stats.")
-        print(f"Available keys: {list(eval_rollout_stats.keys())}")
-        print(f"{'='*80}\n")
+        print(f"[INFO] Loading model from HuggingFace: {checkpoint_path}")
+        tokenizer = AutoTokenizer.from_pretrained(checkpoint_path, trust_remote_code=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            checkpoint_path,
+            torch_dtype=torch.bfloat16 if device.type == "cuda" else torch.float32,
+            trust_remote_code=True,
+        )
+        return model, tokenizer
+
+
+def test_model(
+    model_path: str,
+    max_samples: int = 50,
+    max_new_tokens: int = 256,
+    log_dir: str | None = None,
+    test_all: bool = False,
+    temperature: float = 0.0,
+    model_name: str = "Model",
+    batch_size: int = 8,
+):
+    """Test the model on GSM8K samples.
     
-    eval_rollout.destroy()
-    dist.destroy_process_group()
+    Args:
+        batch_size: Number of samples to process in parallel (default: 8). 
+                   Larger batches are faster but use more GPU memory.
+    """
     
-    # Exit cleanly
-    sys.exit(0)
+    # Prepare logging - save to network volume so it persists after pod stops
+    if log_dir is None:
+        log_dir = os.path.join("/workspace", "outputs", "grpo", "test_logs")
+    os.makedirs(log_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = os.path.join(log_dir, f"test_model_{model_name.lower()}_{ts}.log")
+    
+    def _log(msg: str):
+        # Print directly to stdout/stderr (unbuffered) so it shows in terminal immediately
+        print(msg, flush=True)
+        # Also write to log file
+        with open(log_path, "a", encoding="utf-8") as lf:
+            lf.write(msg + "\n")
+            lf.flush()  # Ensure it's written immediately
+    
+    _log(f"\n{'='*80}")
+    _log(f"Testing {model_name} model: {model_path}")
+    _log(f"Max new tokens: {max_new_tokens}")
+    _log(f"Log file: {log_path}")
+    _log(f"{'='*80}\n")
+    
+    # Determine device
+    device = torch.device("cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    _log(f"Using device: {device}")
+    
+    # Load model
+    model, tokenizer = load_model_from_checkpoint(model_path, device)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    
+    model = model.to(device)
+    model.eval()
+    _log(f"Model loaded and set to eval mode")
+    
+    # Load GSM8K test set
+    from datasets import load_dataset
+    
+    dataset = load_dataset("openai/gsm8k", "main", split="test")
+    
+    # Determine how many samples to test
+    if test_all or max_samples == -1:
+        num_samples = len(dataset)
+        _log(f"Testing on FULL dataset: {num_samples} samples")
+    else:
+        num_samples = min(max_samples, len(dataset))
+        _log(f"Testing on {num_samples} samples (out of {len(dataset)} total)")
+    
+    results = []
+    correct = 0
+    
+    # Process samples in batches for faster inference
+    dataset_subset = list(dataset.select(range(num_samples)))
+    _log(f"Processing {num_samples} samples in batches of {batch_size}...")
+    
+    for batch_start in range(0, num_samples, batch_size):
+        batch_end = min(batch_start + batch_size, num_samples)
+        batch_samples = dataset_subset[batch_start:batch_end]
+        batch_size_actual = len(batch_samples)
+        
+        # Prepare batch data
+        batch_questions = []
+        batch_correct_answers = []
+        batch_messages = []
+        
+        for sample in batch_samples:
+            question = sample["question"]
+            correct_answer = sample["answer"]
+            batch_questions.append(question)
+            batch_correct_answers.append(correct_answer)
+            
+            # Format prompt: simple user message format (no system prompt for standard GRPO)
+            messages = [
+                {"role": "user", "content": f"{question}\nPlease put your final answer within \\boxed{{}}."}
+            ]
+            batch_messages.append(messages)
+        
+        # Tokenize batch (with padding)
+        tokenizer.padding_side = "left"  # Left padding for generation
+        batch_inputs = tokenizer.apply_chat_template(
+            batch_messages,
+            add_generation_prompt=True,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+        ).to(device)
+        
+        # Store input lengths for decoding
+        input_lengths = (batch_inputs != tokenizer.pad_token_id).sum(dim=1).cpu().tolist()
+        
+        # Generate in batch
+        with torch.no_grad():
+            gen_kwargs = {
+                "max_new_tokens": max_new_tokens,
+                "do_sample": temperature > 0.0,
+                "temperature": temperature if temperature > 0.0 else None,
+                "pad_token_id": tokenizer.pad_token_id,
+                "eos_token_id": tokenizer.eos_token_id,
+            }
+            # Remove None values
+            gen_kwargs = {k: v for k, v in gen_kwargs.items() if v is not None}
+            batch_outputs = model.generate(batch_inputs, **gen_kwargs)
+        
+        # Decode each output separately
+        for batch_idx, (sample_idx, sample) in enumerate(zip(range(batch_start, batch_end), batch_samples)):
+            i = sample_idx
+            question = batch_questions[batch_idx]
+            correct_answer = batch_correct_answers[batch_idx]
+            
+            # Extract generated tokens (skip input tokens)
+            input_len = input_lengths[batch_idx]
+            generated_token_ids = batch_outputs[batch_idx][input_len:]
+            generated_text = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
+            
+            # Check correctness using AReaL's math parser
+            # Note: process_results(answer, solution) where answer is ground truth, solution is generated
+            is_correct = False
+            parser_error = None
+            extracted_answers = (None, None)
+            try:
+                # Debug: log what we're passing to process_results
+                _log(f"[DEBUG] Sample {i+1}: correct_answer length={len(correct_answer)}, generated_text length={len(generated_text)}")
+                _log(f"[DEBUG] Sample {i+1}: correct_answer preview={correct_answer[:100]}...")
+                _log(f"[DEBUG] Sample {i+1}: generated_text preview={generated_text[:100]}...")
+                
+                parser_result, extracted_answers = process_results(correct_answer, generated_text)
+                is_correct = bool(parser_result)
+                
+                _log(f"[DEBUG] Sample {i+1}: parser_result={parser_result}, extracted_answers={extracted_answers}")
+            except Exception as e:
+                parser_error = str(e)
+                _log(f"Warning: Parser failed for sample {i+1}: {e}")
+                import traceback
+                _log(f"Traceback: {traceback.format_exc()}")
+            
+            if is_correct:
+                correct += 1
+            
+            results.append({
+                "question": question,
+                "correct_answer": correct_answer,
+                "generated": generated_text,
+                "correct": is_correct,
+                "parser_error": parser_error,
+            })
+            
+            # Log detailed info for all samples with correct answer comparison
+            _log(f"\n{'='*80}")
+            _log(f"Sample {i+1}/{num_samples}")
+            _log(f"{'='*80}")
+            _log(f"Question:\n{question}")
+            _log(f"\n{'─'*80}")
+            _log(f"Generated Response:\n{generated_text}")
+            _log(f"\n{'─'*80}")
+            _log(f"Correct Answer:\n{correct_answer}")
+            _log(f"\n{'─'*80}")
+            _log(f"Result: {'✅ CORRECT' if is_correct else '❌ INCORRECT'}")
+            if parser_error:
+                _log(f"Parser Error: {parser_error}")
+            _log(f"{'='*80}")
+        
+        # Log progress every batch or for first/last
+        if (batch_end) % 10 == 0 or batch_start == 0 or batch_end >= num_samples:
+            _log(f"Progress: {batch_end}/{num_samples} | Correct: {correct}/{batch_end} | Accuracy: {correct/batch_end*100:.2f}%")
+    
+    accuracy = correct / len(results) * 100
+    _log(f"\n{'='*80}")
+    _log(f"FINAL ACCURACY: {accuracy:.2f}% ({correct}/{len(results)})")
+    _log(f"Log saved to: {log_path}")
+    _log(f"{'='*80}\n")
+    
+    print(f"\n{'='*80}")
+    print(f"{model_name.upper()} MODEL ACCURACY: {accuracy:.2f}% ({correct}/{len(results)})")
+    print(f"Log saved to: {log_path}")
+    print(f"{'='*80}\n")
+    
+    return {
+        "accuracy": accuracy,
+        "correct": correct,
+        "total": len(results),
+        "results": results,
+        "log_path": log_path,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Test trained GRPO model on GSM8K")
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        default=None,
+        help="Path to model checkpoint (HuggingFace-format directory or HuggingFace model identifier). If not provided, will try to use --config.",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=None,
+        help="Path to config file (alternative to --model-path). Will extract model path from config.",
+    )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=50,
+        help="Maximum number of samples to test (use -1 for full test set)",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Test on full GSM8K test set (all 1319 samples)",
+    )
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=512,  # Increased from 256 to allow longer reasoning chains
+        help="Maximum new tokens to generate (default: 512)",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Temperature for sampling (0.0 = greedy, >0.0 = sampling)",
+    )
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default=None,
+        help="Directory to write timestamped log files",
+    )
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default="Model",
+        help="Name for logging (e.g., 'Baseline' or 'Trained')",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=8,
+        help="Batch size for faster inference (default: 8). Larger batches are faster but use more GPU memory.",
+    )
+    
+    args = parser.parse_args()
+    
+    # Determine model path
+    model_path = args.model_path
+    if model_path is None and args.config is not None:
+        # Extract model path from config
+        from omegaconf import OmegaConf
+        from pathlib import Path
+        
+        config_file = Path(args.config)
+        if not config_file.is_absolute():
+            config_file = Path.cwd() / config_file
+        config = OmegaConf.load(config_file)
+        model_path = config.get("actor", {}).get("path", None)
+        if model_path is None:
+            print("ERROR: Could not extract model path from config. Please use --model-path instead.")
+            sys.exit(1)
+    elif model_path is None:
+        print("ERROR: Must provide either --model-path or --config")
+        sys.exit(1)
+    
+    test_all = args.all or args.max_samples == -1
+    
+    return test_model(
+        model_path,
+        max_samples=args.max_samples,
+        max_new_tokens=args.max_new_tokens,
+        log_dir=args.log_dir,
+        test_all=test_all,
+        temperature=args.temperature,
+        model_name=args.model_name,
+        batch_size=args.batch_size,
+    )
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
-
+    main()

@@ -31,7 +31,7 @@ def test_model(
     log_path = os.path.join(log_dir, f"test_{ts}.log")
 
     def _log(msg: str):
-        with open(log_path, "a") as lf:
+        with open(log_path, "a", encoding="utf-8") as lf:
             lf.write(msg + "\n")
 
     _log(f"\n{'='*60}")
@@ -128,6 +128,8 @@ def test_model(
         generated_tokens = outputs[:, input_len:]
         decoded_texts = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
 
+        parser_result, extracted_answers = process_results(correct_answer, generated_text)
+        gt_extracted, sol_extracted = [parse_digits(ans) for ans in extracted_answers]
         # Calculate the starting index for this batch relative to the total dataset
         batch_start_index = pbar.n
         for i, generated_text in enumerate(decoded_texts):

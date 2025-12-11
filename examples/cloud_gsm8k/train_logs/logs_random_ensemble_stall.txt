@@ -1,0 +1,44 @@
+2025-12-09T01:39:52.021462857Z ==========
+2025-12-09T01:39:52.021471147Z == CUDA ==
+2025-12-09T01:39:52.021477567Z ==========
+2025-12-09T01:39:52.036003646Z CUDA Version 12.9.1
+2025-12-09T01:39:52.036018996Z Container image Copyright (c) 2016-2023, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+2025-12-09T01:39:52.036032506Z This container image and its contents are governed by the NVIDIA Deep Learning Container License.
+2025-12-09T01:39:52.036039766Z By pulling and using the container, you accept the terms and conditions of this license:
+2025-12-09T01:39:52.036045666Z https://developer.nvidia.com/ngc/nvidia-deep-learning-container-license
+2025-12-09T01:39:52.036057025Z A copy of this license is made available in this container at /NGC-DL-CONTAINER-LICENSE for your convenience.
+2025-12-09T01:39:52.254011702Z Writing to /root/.config/pip/pip.conf
+2025-12-09T01:39:52.461279702Z Writing to /root/.config/pip/pip.conf
+2025-12-09T01:39:52.493249583Z Cloning into 'AReaL'...
+2025-12-09T01:39:55.733015879Z Updating files:  55% (451/812)Updating files:  56% (455/812)Updating files:  57% (463/812)Updating files:  58% (471/812)Updating files:  59% (480/812)Updating files:  60% (488/812)Updating files:  61% (496/812)Updating files:  62% (504/812)Updating files:  63% (512/812)Updating files:  64% (520/812)Updating files:  65% (528/812)Updating files:  66% (536/812)Updating files:  67% (545/812)Updating files:  68% (553/812)Updating files:  69% (561/812)Updating files:  70% (569/812)Updating files:  71% (577/812)Updating files:  72% (585/812)Updating files:  73% (593/812)Updating files:  74% (601/812)Updating files:  75% (609/812)Updating files:  76% (618/812)Updating files:  77% (626/812)Updating files:  78% (634/812)Updating files:  79% (642/812)Updating files:  80% (650/812)Updating files:  81% (658/812)Updating files:  82% (666/812)Updating files:  83% (674/812)Updating files:  84% (683/812)Updating files:  85% (691/812)Updating files:  86% (699/812)Updating files:  87% (707/812)Updating files:  88% (715/812)Updating files:  89% (723/812)Updating files:  90% (731/812)Updating files:  91% (739/812)Updating files:  92% (748/812)Updating files:  93% (756/812)Updating files:  94% (764/812)Updating files:  95% (772/812)Updating files:  96% (780/812)Updating files:  97% (788/812)Updating files:  98% (796/812)Updating files:  99% (804/812)Updating files: 100% (812/812)Updating files: 100% (812/812), done.
+2025-12-09T01:39:56.770767166Z Using checkpoint directory: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default
+2025-12-09T01:39:56.770830806Z Testing epochs: 4
+2025-12-09T01:39:56.770837396Z Batch size: 32
+2025-12-09T01:39:56.770843316Z Max new tokens: 512
+2025-12-09T01:39:56.770849066Z Samples per checkpoint: 5
+2025-12-09T01:39:56.770855396Z Temperature: 0.7
+2025-12-09T01:39:56.770865456Z Epochs array: 4
+2025-12-09T01:39:56.770870556Z Number of epochs: 1
+2025-12-09T01:39:57.580950287Z /usr/local/lib/python3.12/dist-packages/torch/cuda/__init__.py:63: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+2025-12-09T01:39:57.580985957Z   import pynvml  # type: ignore[import]
+2025-12-09T01:40:03.488777101Z /workspace/AReaL/areal/reward/math_parser.py:290: SyntaxWarning: invalid escape sequence '\%'
+2025-12-09T01:40:03.488816251Z   string = string.replace("\%", "")
+2025-12-09T01:40:03.489248700Z /workspace/AReaL/areal/reward/math_parser.py:412: SyntaxWarning: invalid escape sequence '\d'
+2025-12-09T01:40:03.489271230Z   pattern = "-?\d*\.?\d+"
+2025-12-09T01:40:04.100300093Z Using device: cuda
+2025-12-09T01:40:04.100331813Z Epoch 4: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T01:40:04.100345253Z ================================================================================
+2025-12-09T01:40:04.100383873Z Testing checkpoint for epoch 4
+2025-12-09T01:40:04.100390903Z ================================================================================
+2025-12-09T01:40:04.100407453Z ================================================================================
+2025-12-09T01:40:04.100420943Z Testing checkpoint: epoch4
+2025-12-09T01:40:04.100426823Z Checkpoint path: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T01:40:04.100436663Z ================================================================================
+2025-12-09T01:40:04.103205787Z `torch_dtype` is deprecated! Use `dtype` instead!
+2025-12-09T01:40:05.917290568Z Loading model from: /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-3gpu-full-v3-conservative/trial_20251206_214232/default/epoch4epochstep466globalstep2334
+2025-12-09T01:40:05.917328178Z Model loaded and set to eval mode
+2025-12-09T01:40:07.524656869Z Generating train split:   0%|          | 0/7473 [00:00<?, ? examples/s]Generating train split: 100%|██████████| 7473/7473 [00:00<00:00, 324842.30 examples/s]
+2025-12-09T01:40:07.530267826Z Generating test split:   0%|          | 0/1319 [00:00<?, ? examples/s]Generating test split: 100%|██████████| 1319/1319 [00:00<00:00, 255686.42 examples/s]
+2025-12-09T01:40:07.535442105Z Testing on FULL dataset: 1319 samples
+2025-12-09T01:40:07.535479125Z Generating 5 samples per question (temperature=0.7)
+2025-12-09T01:40:07.580787277Z Processing 1319 samples in batches of 32...

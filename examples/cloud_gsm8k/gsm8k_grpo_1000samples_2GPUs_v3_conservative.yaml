@@ -1,0 +1,181 @@
+# Conservative GRPO Training v3 (2x GPUs, 1000 samples) - Aggressively GPU-Optimized
+# Focus: Prevent model collapse with very conservative hyperparameters
+# Key changes from v2:
+# - lr: 1.00e-5 (reduced from 1.50e-5) - more conservative
+# - total_train_epochs: 4 (reduced from 6) - prevent overfitting
+# - warmup_steps_proportion: 0.05 (increased from 0.02) - more gradual start
+# - kl_ctl: 0.02 (increased from 0.01) - stronger regularization
+# - All other critical fixes retained
+# GPU Optimizations:
+# - batch_size: 12 (vs 4) - much better GPU utilization
+# - max_tokens_per_mb: 8192 (vs 4096) - larger microbatch
+# - n_samples: 8 (vs 4) - more samples per prompt
+# - gradient_checkpointing: false - A100 80GB has plenty of memory
+# - max_concurrent_rollouts: 40 (vs 24) - better throughput
+# Expected GPU utilization: GPU0 ~60%, GPU1 ~50-60%
+
+experiment_name: gsm8k-grpo-cloud-2gpu-1000samples-v3-conservative
+trial_name: trial0
+
+# Training configuration
+max_train_samples: 1000  # 1000-sample subset (~3-4 hours on dual A100s)
+training_mode: "1000-SAMPLES-2GPUS-V3-CONSERVATIVE"
+circuit_breaker_enabled: true
+circuit_breaker_threshold: 50
+
+seed: 1
+total_train_epochs: 4  # Reduced from 6 to prevent overfitting
+tokenizer_path: ${actor.path}
+async_training: true
+
+cluster:
+  n_nodes: 1
+  n_gpus_per_node: 2  # 1 GPU for inference + 1 GPU for training
+  fileroot: /workspace/outputs/grpo
+  name_resolve:
+    type: nfs
+    nfs_record_root: ./tmp/areal/name_resolve
+
+# Allocation: sglang (1 GPU) + trainer (1 GPU)
+allocation_mode: sglang.d1t1p1+d1t1p1
+
+rollout:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  max_concurrent_rollouts: 40  # Aggressively increased for maximum GPU utilization
+  queue_size: null
+  consumer_batch_size: ${train_dataset.batch_size}
+  max_head_offpolicyness: 2
+  enable_rollout_tracing: false
+  request_timeout: 7200
+  request_retries: 5
+  setup_timeout: 300
+
+gconfig:
+  n_samples: 8  # Increased from 4 to 8 for better GPU utilization (more samples per prompt = more computation)
+  min_new_tokens: 0
+  max_new_tokens: 512  # Sufficient for complete answers
+  greedy: false
+  temperature: 1.0
+
+actor:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  path: Qwen/Qwen2.5-0.5B-Instruct
+  init_from_scratch: false
+  disable_dropout: true
+  gradient_checkpointing: false  # Disabled for better GPU utilization (A100 80GB has plenty of memory)
+  dtype: bfloat16
+  mb_spec:
+    max_tokens_per_mb: 8192  # Aggressively increased for maximum GPU utilization
+  optimizer:
+    type: adam
+    lr: 1.00e-5  # Reduced from 1.50e-5 for more conservative updates
+    weight_decay: 0.017
+    beta1: 0.9
+    beta2: 0.999
+    eps: 1e-8
+    lr_scheduler_type: constant
+    gradient_clipping: 1.0
+    warmup_steps_proportion: 0.05  # Increased from 0.02 (5% warmup for stability)
+  backend: fsdp
+  group_size: ${gconfig.n_samples}
+  eps_clip: 0.2  # Conservative updates (retained)
+  temperature: ${gconfig.temperature}
+  reward_scaling: 10.0
+  reward_bias: 0.0  # No negative bias (retained)
+  kl_ctl: 0.02  # Increased from 0.01 for stronger regularization
+  ppo_n_minibatches: 2  # Data reuse for stability (retained)
+  recompute_logprob: true
+  use_decoupled_loss: true
+  behav_imp_weight_cap: 5.0
+  dynamic_sampling: false
+  reward_norm:
+    mean_level: group
+    std_level: group
+    group_size: ${gconfig.n_samples}
+  adv_norm:
+    mean_level: batch
+    std_level: batch
+  max_new_tokens: ${gconfig.max_new_tokens}
+
+ref:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  path: ${actor.path}
+  init_from_scratch: false
+  disable_dropout: true
+  dtype: ${actor.dtype}
+  mb_spec:
+    max_tokens_per_mb: 8192  # Increased to match actor for better GPU utilization
+  optimizer: null
+  backend: fsdp
+
+sglang:
+  model_path: ${actor.path}
+  random_seed: ${seed}
+  skip_tokenizer_init: true
+  dtype: ${actor.dtype}
+  max_running_requests: null
+  context_length: 4096
+  mem_fraction_static: 0.6  # leave headroom on 80GB A100s
+  attention_backend: flashinfer
+
+train_dataset:
+  batch_size: 12  # Aggressively increased for maximum GPU utilization (A100 80GB can easily handle 12+)
+  shuffle: true
+  pin_memory: true
+  num_workers: 0
+  path: openai/gsm8k
+  type: rl
+  max_length: 512
+
+valid_dataset:
+  batch_size: 12  # Increased to match train_dataset
+  shuffle: true
+  pin_memory: true
+  num_workers: 0
+  path: openai/gsm8k
+  type: rl
+  max_length: 512
+
+saver:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  fileroot: ${cluster.fileroot}
+  freq_epochs: 1
+  freq_steps: null
+  freq_secs: null
+
+recover:
+  mode: disabled
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  fileroot: ${cluster.fileroot}
+  freq_epochs: 1
+  freq_steps: null
+  freq_secs: 3600
+
+evaluator:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  fileroot: ${cluster.fileroot}
+  freq_epochs: 1
+  freq_steps: null
+  freq_secs: null
+
+stats_logger:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  fileroot: ${cluster.fileroot}
+  wandb:
+    mode: online
+    wandb_api_key: ${oc.env:WANDB_API_KEY,""}
+    project: gsm8k-grpo-cloud
+
+launcher:
+  inference_server_cpus_per_gpu: 4
+  inference_server_mem_per_gpu: 16384
+  trainer_cpus_per_gpu: 4
+  trainer_mem_per_gpu: 16384
+

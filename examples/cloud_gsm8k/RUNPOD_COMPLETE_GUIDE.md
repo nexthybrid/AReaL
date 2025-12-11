@@ -2,6 +2,17 @@
 
 RunPod is the most economical cloud GPU platform. This complete guide covers everything you need.
 
+## Quick Start (TL;DR)
+
+If you're in a hurry, here's the fastest way to get started:
+
+1. **Create RunPod account**: https://runpod.io
+2. **Create network volume**: Name `areal-outputs`, Size 50GB
+3. **Deploy pod using template** (see Step 3 below)
+4. **Training starts automatically!**
+
+For detailed instructions, continue reading below.
+
 ## Why RunPod?
 
 - 💰 **Best Pricing**: RTX 4090 at $0.29/hour (vs $0.40+ on other platforms)
@@ -35,6 +46,9 @@ RunPod is the most economical cloud GPU platform. This complete guide covers eve
 3. **Settings**:
    - **Name**: `areal-outputs`
    - **Size**: 50GB (enough for multiple training runs)
+     - For reasoning models: 50GB recommended (see `REASONING_VOLUME_SIZE_GUIDE.md` for details)
+     - For multi-GPU reasoning: 60GB recommended
+     - For multiple experiments: 100GB+ recommended
    - **Description**: "AReaL GRPO training outputs and checkpoints"
 4. **Click "Create"**
 
@@ -57,6 +71,12 @@ RunPod is the most economical cloud GPU platform. This complete guide covers eve
    ```bash
    bash -c "set -e && pip config set global.index-url https://pypi.org/simple && pip config set global.extra-index-url '' && cd /workspace && if [ -d AReaL/.git ]; then cd AReaL && git fetch origin && git checkout -B DL4Math origin/DL4Math 2>/dev/null || git checkout -B DL4Math origin/DL4Math 2>/dev/null || (cd .. && rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git); else rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git; fi && cd /workspace/AReaL && (python3 -c 'import areal' 2>/dev/null || pip install -e .) && export WANDB_API_KEY=\$WANDB_API_KEY && bash examples/cloud_gsm8k/run_training_cloud.sh 1hour"
    ```
+   
+   **⚠️ CRITICAL: Disable Auto-Restart!**
+   - In pod settings, set **"Restart Policy"** to **"Never"** or **"On Failure Only"**
+   - This prevents RunPod from re-running the script after training completes
+   - Without this, the container will restart and waste money!
+   - See `RUNPOD_STOP_BEHAVIOR.md` for detailed explanation
    
    **⚠️ Important**: 
    - **Smart git handling**: If AReaL exists and is a valid git repo, it updates with `git fetch` and `git checkout` (preserves code during container restarts). Only removes/clones if invalid or missing. This prevents deleting code during training.
@@ -185,7 +205,64 @@ bash examples/cloud_gsm8k/run_training_cloud.sh 3hour
 
 # Full training (all samples, 5 epochs) - takes days!
 bash examples/cloud_gsm8k/run_training_cloud.sh full
+
+# 2-GPU training configs (requires 2x A100 GPUs):
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6  # Override to 6 epochs
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_1000samples_2GPUs_v3_conservative 5  # Override to 5 epochs
+
+# 💡 Tip: Use epoch override to experiment without modifying YAML files!
+#   Format: bash run_training_cloud.sh [config_name] [epochs_override]
+#   Example: bash run_training_cloud.sh standard_2000samples_2GPUs_v3 6
 ```
+
+## Step 6.5: Epoch Override Feature (Optional)
+
+**💡 New Feature**: You can now override the number of training epochs without modifying YAML files!
+
+### Why Use Epoch Override?
+
+- ✅ **No git push needed**: Change epochs without modifying config files
+- ✅ **Quick experimentation**: Test different epoch counts easily
+- ✅ **No YAML editing**: Override directly from command line
+
+### Usage
+
+```bash
+# Normal usage (uses epochs from YAML file)
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3
+
+# Override to 6 epochs (ignores YAML setting)
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6
+
+# Override to 5 epochs
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5
+
+# Works with any config preset or YAML file path
+bash examples/cloud_gsm8k/run_training_cloud.sh examples/cloud_gsm8k/gsm8k_grpo_2000samples_2GPUs_v3.yaml 6
+```
+
+### Examples
+
+**Testing more epochs for better accuracy:**
+```bash
+# Original config has 4 epochs, test with 6 epochs
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6
+```
+
+**Quick test with fewer epochs:**
+```bash
+# Test with 3 epochs instead of default 4
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 3
+```
+
+### Validation
+
+The script validates that the epoch override is a positive integer:
+- ✅ Valid: `5`, `6`, `10`
+- ❌ Invalid: `0`, `-1`, `abc`, `5.5`
+
+If invalid, the script will show an error and exit.
 
 ## Step 7: Monitor Training
 
@@ -238,37 +315,453 @@ aws s3 sync /workspace/outputs s3://your-bucket/areal-outputs/
 gsutil -m cp -r /workspace/outputs gs://your-bucket/areal-outputs/
 ```
 
-## Step 9: Stop Pod (Save Costs!)
+## Step 9: Container Stop Behavior and Completion Markers
 
-**Important**: Stop pod when done to avoid charges!
+### ⚠️ Critical Issue: Container Auto-Restart Loop
 
-**Before stopping, verify checkpoints are saved:**
+**Problem**: RunPod has a default behavior where containers **automatically restart** when they exit. This means:
 
-```bash
-# Inside pod, verify checkpoints exist on the volume
-ls -lh /workspace/outputs/grpo/checkpoints/
+1. ✅ Training script runs and completes
+2. ✅ Container exits (normal behavior)
+3. ❌ **RunPod automatically restarts the container**
+4. ❌ **Script runs again** (wasting money!)
 
-# Should show your experiment directories with checkpoints
-# Example:
-# gsm8k-grpo-cloud-1hour/
-#   └── trial0/
-#       └── checkpoint_epoch_1_step_63/
-#           ├── actor.pt
-#           ├── optimizer.pt
-#           └── ...
+This can create an **infinite loop** that wastes money!
+
+### Solution 1: Disable Auto-Restart (Recommended)
+
+**In RunPod Pod Settings:**
+1. Go to your pod settings
+2. Find **"Restart Policy"** or **"Auto-Restart"**
+3. Set it to **"Never"** or **"On Failure Only"**
+4. This prevents the container from restarting when it exits normally
+
+### Solution 2: Completion Marker Protection (Implemented)
+
+The training script includes a **completion marker** system:
+
+1. **At start**: Script checks for completion markers
+   - If found → Script exits immediately (prevents re-running)
+   - If not found → Training proceeds normally
+
+2. **At end**: Script creates a completion marker
+   - Marker file: `/workspace/outputs/training_completed_YYYYMMDD_HHMMSS.marker`
+   - Contains: Completion timestamp, experiment name, trial name
+
+**If container restarts:**
+- Script checks for marker → Found → Exits immediately
+- No training runs → No money wasted!
+
+### Solution 3: Manual Pod Stop
+
+**After training completes:**
+1. Go to RunPod dashboard: https://www.runpod.io/console/pods
+2. Find your pod
+3. Click **"Stop"** button
+4. Pod stops → No more charges
+
+**⚠️ Important**: Do this **immediately** after training completes to avoid charges!
+
+
+## Step 10: Accessing Test Logs and Auto-Upload
+
+### Where Test Logs Are Saved
+
+All test logs are saved to:
+```
+/workspace/outputs/grpo/test_logs/
 ```
 
-1. **Go to "Pods"** in RunPod dashboard
-2. **Click "Stop"** on your pod
-3. **Or enable auto-shutdown** in pod settings
+This directory is on the **network volume** (`areal-outputs`), which means:
+- ✅ Logs persist after the pod stops
+- ✅ You can access them from RunPod dashboard
+- ✅ You can download them without starting a new pod
+- ✅ No need to keep the pod running just to read results
 
-**✅ Your checkpoints are safe in the network volume!** They will persist even after the pod stops.
+### Log File Names
 
-## Step 10: Resuming Training from Checkpoint
+- **Reasoning Model Tests**: `test_reasoning_baseline_YYYYMMDD_HHMMSS.log` and `test_reasoning_trained_YYYYMMDD_HHMMSS.log`
+- **Regular Model Tests**: `test_model_baseline_YYYYMMDD_HHMMSS.log` and `test_model_trained_YYYYMMDD_HHMMSS.log`
+
+### Accessing Logs
+
+**Method 1: RunPod Dashboard (Easiest)**
+1. Go to RunPod Dashboard: https://www.runpod.io/console/volumes
+2. Find your volume: `areal-outputs`
+3. Click on the volume to view contents
+4. Navigate to: `grpo/test_logs/`
+5. Download the log files you want
+
+**Method 2: Start a Temporary Pod**
+If you need to access logs via command line:
+```bash
+# Inside pod
+ls -lh /workspace/outputs/grpo/test_logs/
+cat /workspace/outputs/grpo/test_logs/test_model_trained_YYYYMMDD_HHMMSS.log
+```
+
+### What's in the Logs
+
+Each log file contains:
+- Model path and configuration
+- Test dataset size
+- Per-sample results (question, generated answer, correct answer, correctness)
+- Final accuracy percentage
+- Detailed output for first few samples and incorrect answers
+
+### Auto-Upload Test Logs
+
+After training and testing complete, the system can automatically upload the latest test logs to:
+- 📧 **Email** (SMTP)
+- ☁️ **Google Drive** (via rclone)
+- ☁️ **AWS S3**
+- 🤗 **Hugging Face Hub**
+- 📊 **Weights & Biases** (as artifacts)
+- 🌐 **Generic webhook/API endpoint**
+
+#### Quick Setup: Email (Easiest)
+
+Set these environment variables in your RunPod pod:
+
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=email
+export AUTO_UPLOAD_EMAIL_TO=your-email@example.com
+export EMAIL_FROM=your-sender@example.com
+export SMTP_PASSWORD=your-app-password  # Gmail: use App Password, not regular password
+```
+
+**For Gmail:**
+1. Enable 2-factor authentication
+2. Generate an App Password: https://myaccount.google.com/apppasswords
+3. Use the App Password as `SMTP_PASSWORD`
+
+#### Other Upload Methods
+
+**Google Drive:**
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=gdrive
+export AUTO_UPLOAD_GDRIVE_FOLDER_ID=YOUR_FOLDER_ID
+# Requires rclone setup: curl https://rclone.org/install.sh | sudo bash && rclone config
+```
+
+**AWS S3:**
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=s3
+export AUTO_UPLOAD_S3_BUCKET=my-bucket-name
+export AUTO_UPLOAD_S3_PREFIX=areal-training-logs
+export AWS_ACCESS_KEY_ID=your-access-key
+export AWS_SECRET_ACCESS_KEY=your-secret-key
+```
+
+**Hugging Face Hub:**
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=hf
+export AUTO_UPLOAD_HF_REPO_ID=username/dataset-name
+export HF_TOKEN=your-hf-token
+```
+
+**Weights & Biases:**
+```bash
+export AUTO_UPLOAD_LOGS_METHOD=wandb
+export AUTO_UPLOAD_WANDB_PROJECT=gsm8k-grpo-cloud
+export WANDB_API_KEY=your-wandb-key
+```
+
+#### Setting Environment Variables in RunPod
+
+**Method 1: In RunPod Template Environment Variables**
+1. Go to RunPod Templates
+2. Edit your template
+3. Add environment variables in the "Environment Variables" section
+
+**Method 2: In RunPod Docker Command**
+Add environment variables to your RunPod startup command:
+```bash
+bash -c "export AUTO_UPLOAD_LOGS_METHOD=email && export AUTO_UPLOAD_EMAIL_TO=your@email.com && ... (rest of command)"
+```
+
+#### Manual Upload
+
+You can also manually upload logs after training completes:
+
+```bash
+python3 examples/cloud_gsm8k/upload_logs.py \
+    --log-dir /workspace/outputs/grpo/test_logs \
+    --method email \
+    --email-to your@email.com \
+    --latest-only
+```
+
+### Interval Testing: Evaluating Multiple Checkpoints
+
+The `test_full_dataset.sh` script supports **interval testing**, which automatically evaluates checkpoints at 5-epoch intervals (epochs 4, 9, 14, 19, 24, etc.) instead of just the latest checkpoint. This is useful for:
+
+- **Tracking training progression**: See how accuracy improves over epochs
+- **Finding optimal checkpoint**: Identify the best-performing epoch
+- **Detecting overfitting**: Observe if accuracy plateaus or decreases after a certain epoch
+- **Comprehensive evaluation**: Get a complete picture of model performance throughout training
+
+#### Usage
+
+**Basic interval testing:**
+```bash
+# Test checkpoints at 5-epoch intervals (4, 9, 14, 19, etc.)
+bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_25epochs.txt --test-intervals
+```
+
+**With specific checkpoint path:**
+```bash
+# If you know the checkpoint directory
+bash examples/cloud_gsm8k/test_full_dataset.sh /workspace/outputs/grpo/checkpoints/root/gsm8k-grpo-cloud-2gpu-1000samples-v3-conservative/trial_20251201_091022/default --test-intervals
+```
+
+**Auto-detect from latest checkpoint:**
+```bash
+# Script will find the latest checkpoint automatically
+bash examples/cloud_gsm8k/test_full_dataset.sh "" "" --test-intervals
+```
+
+#### How Interval Testing Works
+
+1. **Finds checkpoints at 5-epoch intervals**: Starting from epoch 4 (since epoch 0 is the initial state), tests epochs 4, 9, 14, 19, 24, etc.
+2. **Tests each checkpoint**: Runs full dataset evaluation (1319 samples) for each interval checkpoint
+3. **Skips already-tested checkpoints**: If a checkpoint was already tested (log file exists with "FINAL ACCURACY"), it skips to save time
+4. **Resume capability**: If the script is interrupted (e.g., container restart), it can resume from where it left off using completion markers
+5. **Uploads all logs**: All interval test logs are automatically uploaded if auto-upload is configured
+
+#### Interval Testing Log Files
+
+Each interval checkpoint gets its own log file:
+```
+test_model_epoch4_YYYYMMDD_HHMMSS.log
+test_model_epoch9_YYYYMMDD_HHMMSS.log
+test_model_epoch14_YYYYMMDD_HHMMSS.log
+test_model_epoch19_YYYYMMDD_HHMMSS.log
+test_model_epoch24_YYYYMMDD_HHMMSS.log
+```
+
+All interval logs are automatically uploaded together if auto-upload is enabled.
+
+#### Completion Markers
+
+The script creates completion markers to prevent re-running interval tests after container restarts:
+```
+/workspace/outputs/grpo/test_logs/interval_testing_completed_YYYYMMDD_HHMMSS.marker
+```
+
+If this marker exists, the script will skip interval testing to avoid redundant computation.
+
+#### Example: Running Interval Testing in RunPod Container Starter
+
+To run interval testing automatically after training completes, add it to your RunPod container starter code:
+
+```bash
+bash -c "set -e && pip config set global.index-url https://pypi.org/simple && pip config set global.extra-index-url '' && cd /workspace && if [ -d AReaL/.git ]; then cd AReaL && git fetch origin && git checkout -B DL4Math origin/DL4Math 2>/dev/null || git checkout -B DL4Math origin/DL4Math 2>/dev/null || (cd .. && rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git); else rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git; fi && cd /workspace/AReaL && (python3 -c 'import areal' 2>/dev/null || pip install -e .) && export WANDB_API_KEY=\$WANDB_API_KEY && bash examples/cloud_gsm8k/run_training_cloud.sh standard_1000samples_2GPUs_v3_conservative 25 && bash examples/cloud_gsm8k/test_full_dataset.sh \"\" \"\" --test-intervals"
+```
+
+**Note**: The `--test-intervals` flag must be passed to `test_full_dataset.sh`, not to `run_training_cloud.sh`.
+
+#### Best Practices
+
+1. **Use interval testing for long training runs**: Especially useful for 20+ epoch training to track progression
+2. **Check completion markers**: If interval testing seems stuck, check if a completion marker exists
+3. **Monitor log files**: Each interval test takes time (full dataset evaluation), so monitor progress
+4. **Resume capability**: If interrupted, the script will resume from where it left off automatically
+5. **Auto-upload all logs**: Configure auto-upload to receive all interval test results via email
+
+### Ensemble Testing: Combining Multiple Checkpoints with Majority Voting
+
+The `test_checkpoint_ensemble.sh` script performs **ensemble testing** by combining predictions from multiple checkpoints using majority voting. This can improve accuracy by leveraging the strengths of different training stages.
+
+#### What is Ensemble Testing?
+
+Instead of using a single checkpoint to answer questions, ensemble testing:
+1. **Loads multiple checkpoints** (e.g., epochs 4, 9, 14, 19, 24)
+2. **Generates answers** from each checkpoint for all test questions
+3. **Performs majority voting** to select the most common answer
+4. **Uses tie-breaking** (latest checkpoint) when answers are tied
+5. **Calculates ensemble accuracy** across all questions
+
+This approach often achieves **higher accuracy** than any single checkpoint alone.
+
+#### Usage
+
+**Basic ensemble testing:**
+```bash
+# Test with default epochs (4, 9, 14, 19, 24)
+bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh /workspace/outputs/grpo/checkpoints/root/experiment/trial/default
+```
+
+**With custom epochs:**
+```bash
+# Test specific epochs
+bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh /workspace/outputs/grpo/checkpoints/root/experiment/trial/default "4 9 14"
+```
+
+**Auto-detect checkpoint directory from training log:**
+```bash
+# Script will find checkpoint directory from log file
+bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh "" "" examples/cloud_gsm8k/train_logs/logs_25epochs.txt
+```
+
+#### Configuration Options
+
+**Environment Variables:**
+
+```bash
+# Number of samples per checkpoint (default: 1, use >1 for self-consistency)
+export N_SAMPLES=5  # Generate 5 samples per checkpoint, then vote
+
+# Temperature for sampling (default: 0.0 = greedy)
+export TEMPERATURE=0.7  # Use with N_SAMPLES > 1 for diverse samples
+
+# Batch size for testing (default: 32)
+export TEST_BATCH_SIZE=128  # Larger batch = faster but more memory
+
+# Sub-batch size for multi-sample generation (default: auto, ~16 for A100)
+export SUB_BATCH_SIZE=128  # For A100 80GB, use 64-128 for optimal GPU utilization
+```
+
+**Performance Optimization:**
+
+For **A100 80GB** with `N_SAMPLES=5`:
+- **Recommended**: `SUB_BATCH_SIZE=64` (320 sequences in parallel)
+- **Maximum**: `SUB_BATCH_SIZE=128` (640 sequences in parallel)
+- **Note**: The script automatically increases `BATCH_SIZE` to match `SUB_BATCH_SIZE` if needed
+
+See `SUB_BATCH_SIZE_GUIDE.md` for detailed recommendations.
+
+#### Example: Running Ensemble Testing in RunPod Container Starter
+
+To run ensemble testing automatically after training completes:
+
+```bash
+bash -c "set -e && pip config set global.index-url https://pypi.org/simple && pip config set global.extra-index-url '' && cd /workspace && if [ -d AReaL/.git ]; then cd AReaL && git fetch origin && git checkout -B DL4Math origin/DL4Math 2>/dev/null || git checkout -B DL4Math origin/DL4Math 2>/dev/null || (cd .. && rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git); else rm -rf AReaL && git clone -b DL4Math https://github.com/nexthybrid/AReaL.git; fi && cd /workspace/AReaL && (python3 -c 'import areal' 2>/dev/null || pip install -e .) && export WANDB_API_KEY=\$WANDB_API_KEY && bash examples/cloud_gsm8k/run_training_cloud.sh standard_1000samples_2GPUs_v3_conservative 25 && export SUB_BATCH_SIZE=128 N_SAMPLES=5 && bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh \"\" \"\" examples/cloud_gsm8k/train_logs/logs_25epochs.txt"
+```
+
+**With self-consistency (multiple samples per checkpoint):**
+```bash
+bash -c "... && export SUB_BATCH_SIZE=128 N_SAMPLES=5 TEMPERATURE=0.7 && bash examples/cloud_gsm8k/test_checkpoint_ensemble.sh \"\" \"\" examples/cloud_gsm8k/train_logs/logs_25epochs.txt"
+```
+
+#### How Ensemble Testing Works
+
+1. **Loads each checkpoint** sequentially (e.g., epoch 4, then 9, then 14, etc.)
+2. **Generates answers** for all 1319 test questions from each checkpoint
+3. **Saves individual results** to log files (one per checkpoint)
+4. **Performs majority voting** across all checkpoints for each question
+5. **Calculates ensemble accuracy** and saves final results
+
+**Memory-efficient approach**: Loads one checkpoint at a time, processes all questions, then moves to the next checkpoint. This prevents OOM errors even with large models.
+
+#### Ensemble Testing Log Files
+
+**Individual checkpoint logs:**
+```
+ensemble_checkpoint_epoch4.log
+ensemble_checkpoint_epoch9.log
+ensemble_checkpoint_epoch14.log
+...
+```
+
+**Final majority voting log:**
+```
+ensemble_majority_voting_YYYYMMDD_HHMMSS.log
+```
+
+All logs are saved to `/workspace/outputs/grpo/test_logs/` and are automatically uploaded if auto-upload is configured.
+
+#### Performance Considerations
+
+**Single sample mode** (`N_SAMPLES=1`):
+- Fastest: ~15 minutes per checkpoint
+- Lower accuracy potential
+- Recommended for quick testing
+
+**Multi-sample mode** (`N_SAMPLES=5`):
+- Slower: ~75 minutes per checkpoint (5x slower)
+- Higher accuracy potential (self-consistency + ensemble)
+- **Requires `SUB_BATCH_SIZE` optimization** for reasonable speed
+- Recommended for final evaluation
+
+**GPU Utilization:**
+- With `SUB_BATCH_SIZE=128` and `N_SAMPLES=5`: ~80-90% GPU utilization
+- With default settings: ~20-30% GPU utilization (much slower)
+
+#### Best Practices
+
+1. **Use ensemble testing for final evaluation**: After identifying best individual checkpoints
+2. **Start with single sample mode**: Test quickly with `N_SAMPLES=1`, then use `N_SAMPLES=5` for final results
+3. **Optimize SUB_BATCH_SIZE**: For A100 80GB, use 64-128 for best performance
+4. **Monitor GPU utilization**: Use `nvidia-smi` to ensure GPU is well-utilized
+5. **Auto-upload results**: Configure auto-upload to receive ensemble results via email
+6. **Compare with individual checkpoints**: Ensemble accuracy should be ≥ best individual checkpoint
+
+#### Example Results
+
+Typical ensemble testing results:
+- **Individual checkpoint accuracies**: 56-60% (varies by epoch)
+- **Ensemble accuracy**: 64-66% (improvement from majority voting)
+- **Improvement**: +4-6% over best individual checkpoint
+
+The ensemble approach leverages the diversity of different training stages to achieve better overall performance.
+
+## Step 11: Network Volume Size Recommendations
+
+### Recommended Volume Sizes by Training Config
+
+| Training Config | Samples | Epochs | Recommended Size | Minimum Size |
+|----------------|---------|--------|------------------|--------------|
+| Fast/1-hour | 200-500 | 1-2 | **30-40GB** | 20-30GB |
+| 3-hour | 1000 | 3 | **50GB** | 40GB |
+| 2-GPU (1000-2000 samples) | 1000-2000 | 3-4 | **50-60GB** | 40-50GB |
+| Reasoning models | 200-2000 | 1-3 | **50-60GB** | 40-50GB |
+| Multiple runs | - | - | **100GB+** | 80GB |
+
+**Most Common Recommendation**: **50-60GB** covers all single-run scenarios with safety margin.
+
+### Storage Components
+
+1. **Model Checkpoints** (largest component)
+   - Per epoch checkpoints (~1GB per checkpoint for Qwen2.5-0.5B)
+   - Optimizer states
+
+2. **Training Logs** (~2-5GB)
+   - Training statistics
+   - System logs
+
+3. **Test Logs** (~1-3GB)
+   - Full validation test results
+   - Per-sample outputs
+
+4. **Generated Samples** (~2-12GB)
+   - Rollout outputs during training
+   - Longer for reasoning models (up to 1024 tokens)
+
+### Monitoring Volume Usage
+
+```bash
+# Inside pod
+df -h /workspace/outputs
+du -sh /workspace/outputs/grpo/checkpoints/*
+du -sh /workspace/outputs/grpo/logs/*
+```
+
+### Upgrading Volume Size
+
+If you run out of space:
+1. RunPod Dashboard → Volumes
+2. Select your volume → Edit/Resize
+3. Increase size (RunPod allows resizing)
+4. Wait for resize to complete
+
+**Note**: RunPod volumes can be resized, but it's better to start with adequate size to avoid interruptions.
+
+## Step 12: Resuming Training from Checkpoint
 
 When you want to continue training (after pod restart or interruption):
 
-### Step 10.1: Deploy New Pod (or Restart Existing)
+### Step 12.1: Deploy New Pod (or Restart Existing)
 
 1. **Go to "Pods"** → **"Deploy"** (or restart existing pod)
 2. **Use same settings** as before:
@@ -276,7 +769,7 @@ When you want to continue training (after pod restart or interruption):
    - **Same volume mount**: `/workspace/outputs` → `areal-outputs` (CRITICAL!)
    - Same environment variables (WandB API key, etc.)
 
-### Step 10.2: Verify Checkpoint Exists
+### Step 12.2: Verify Checkpoint Exists
 
 ```bash
 # Inside pod, check that checkpoints exist
@@ -287,7 +780,7 @@ ls -lh /workspace/outputs/grpo/checkpoints/
 ls -lh /workspace/outputs/grpo/checkpoints/gsm8k-grpo-cloud-1hour/trial0/
 ```
 
-### Step 10.3: Set Up Repository (If Needed)
+### Step 12.3: Set Up Repository (If Needed)
 
 ```bash
 # Inside pod
@@ -316,7 +809,7 @@ if ! python3 -c "import areal" 2>/dev/null; then
 fi
 ```
 
-### Step 10.4: Resume Training
+### Step 12.4: Resume Training
 
 ```bash
 # Inside pod
@@ -414,7 +907,12 @@ If you see "Starting training from scratch", the checkpoint wasn't found. Verify
 - **Persistent storage** across pod restarts
 - **Shared** between pods (if needed)
 - **Fast access** (network-attached)
-- **Recommended size**: 50GB for checkpoints
+- **Recommended size**: 
+  - **Regular training**: 50GB for checkpoints
+  - **Reasoning models**: 50-60GB (longer outputs require more space)
+  - **Multi-GPU reasoning**: 60GB recommended
+  - **Multiple experiments**: 100GB+ recommended
+  - See `REASONING_VOLUME_SIZE_GUIDE.md` for detailed breakdown
 
 ### Spot Instances
 
@@ -699,6 +1197,7 @@ Process 2965022 has 8.05 GiB memory in use.   # Trainer
 7. ✅ **Use same experiment_name/trial_name** when resuming training
 8. ✅ **Download important checkpoints** to local machine as backup
 9. ✅ **Use templates** for repeated runs (ensures consistent volume mounting)
+10. ✅ **Test logs are saved to network volume** at `/workspace/outputs/grpo/test_logs/` - accessible after pod stops!
 
 ## Quick Reference
 
@@ -736,4 +1235,11 @@ bash examples/cloud_gsm8k/run_training_cloud.sh 1hour
 6. ✅ Stop pod (save costs!)
 
 Happy training on RunPod! 🚀
+
+---
+
+## Additional Resources
+
+- **Training Learnings**: See `TRAINING_LEARNINGS.md` for detailed guides, GRPO tuning, epoch analysis, and best practices
+- **Main README**: See `README.md` for overview and quick reference
 

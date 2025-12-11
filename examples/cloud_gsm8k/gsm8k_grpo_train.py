@@ -12,11 +12,17 @@ Config parameters:
     - max_train_samples: Limit dataset size (None for full dataset)
     - training_mode: Display name for training mode (e.g., "FAST", "1-HOUR", "3-HOUR", "FULL")
     - circuit_breaker_enabled: Enable circuit breaker for zero-reward detection (default: True)
-    - circuit_breaker_threshold: Number of consecutive zero rewards before stopping (default: 10)
+    - circuit_breaker_threshold: Number of consecutive zero rewards before stopping (default: 50)
 """
 import os
 import sys
 import logging
+import getpass
+import glob
+import re
+import subprocess
+import time
+import tempfile
 from copy import deepcopy
 
 import torch.distributed as dist
@@ -43,10 +49,14 @@ from areal.workflow.rlvr import RLVRWorkflow
 def gsm8k_reward_fn(prompt, completions, prompt_ids, completion_ids, answer, **kwargs):
     from areal.reward.math_parser import process_results
 
-    return int(process_results(completions, answer)[0])
+    return int(process_results(answer, completions)[0]) # TODO: this is a binary reward, might want to change to fraction reward
 
 
 def main(args):
+    # Store args and script_dir for later use in testing
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    original_args = args.copy() if isinstance(args, list) else args
+    
     # Extract custom training parameters from YAML before config validation
     # These parameters are not part of GRPOConfig, so we read them directly from YAML
     import argparse
@@ -66,31 +76,59 @@ def main(args):
     if not config_file.is_absolute():
         # Make it absolute relative to current working directory
         config_file = Path.cwd() / config_file
+    config_file_str = str(config_file)  # Store for later use
     raw_yaml = OmegaConf.load(config_file)
     
-    # Extract custom training parameters
+    # Extract custom training parameters BEFORE removing them
     max_train_samples = raw_yaml.get("max_train_samples", None)
     if max_train_samples is not None:
         max_train_samples = int(max_train_samples)
     training_mode = raw_yaml.get("training_mode", "TRAINING")
     circuit_breaker_enabled = raw_yaml.get("circuit_breaker_enabled", True)
-    circuit_breaker_threshold = int(raw_yaml.get("circuit_breaker_threshold", 10))
+    circuit_breaker_threshold = int(raw_yaml.get("circuit_breaker_threshold", 50))
     
-    # Remove custom fields from config to avoid validation errors
-    # Use OmegaConf/Hydra delete syntax (~key) to remove keys
+    # Remove custom fields from OmegaConf object to avoid validation errors
+    # These fields are not part of GRPOConfig, so they must be removed before validation
+    # We remove them from the OmegaConf object directly, then write a temporary config file
     custom_keys = ["max_train_samples", "training_mode", "circuit_breaker_enabled", "circuit_breaker_threshold"]
-    override_args = []
+    cleaned_yaml = OmegaConf.create(OmegaConf.to_container(raw_yaml, resolve=False))
     for key in custom_keys:
-        if key in raw_yaml:
-            # Use ~ prefix to delete the key in OmegaConf/Hydra
-            override_args.append(f"~{key}")
+        if key in cleaned_yaml:
+            del cleaned_yaml[key]
     
-    # Add overrides to args to remove custom keys
-    args_with_overrides = args + override_args
+    # Write cleaned config to a temporary file
+    temp_config_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False)
+    OmegaConf.save(cleaned_yaml, temp_config_file.name)
+    temp_config_file.close()
     
-    # Now load config normally - the overrides will remove the custom keys
-    config, _ = load_expr_config(args_with_overrides, GRPOConfig)
-    config: GRPOConfig
+    # Update args to use the cleaned config file
+    # Handle both --config=path and --config path formats
+    args_with_overrides = []
+    skip_next = False
+    for i, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            args_with_overrides.append(temp_config_file.name)
+            continue
+        if arg == "--config":
+            args_with_overrides.append("--config")
+            skip_next = True
+        elif arg.startswith("--config="):
+            args_with_overrides.append(f"--config={temp_config_file.name}")
+        else:
+            args_with_overrides.append(arg)
+    
+    # Now load config normally - the cleaned config file doesn't have custom keys
+    try:
+        config, _ = load_expr_config(args_with_overrides, GRPOConfig)
+        config: GRPOConfig
+    finally:
+        # Clean up temporary config file
+        try:
+            if os.path.exists(temp_config_file.name):
+                os.unlink(temp_config_file.name)
+        except Exception:
+            pass  # Ignore cleanup errors
 
     rank = int(os.getenv("RANK"))
     tokenizer = load_hf_tokenizer(config.tokenizer_path)
@@ -416,6 +454,299 @@ def main(args):
     if ref is not None:
         ref.destroy()
     actor.destroy()
+    
+    # Run test on first 50 samples after training completes
+    # Test both baseline model and trained model
+    if actor.is_data_parallel_head():
+        print(f"\n{'='*80}")
+        print("Training completed! Running tests on first 50 samples...")
+        print(f"Testing both BASELINE and TRAINED models for comparison")
+        print(f"{'='*80}\n")
+        
+        # Get baseline model path (original model before training)
+        baseline_model_path = config.actor.path
+        print(f"Baseline model: {baseline_model_path}")
+        
+        # Find the latest checkpoint
+        checkpoint_dir = os.path.join(
+            config.cluster.fileroot,
+            "checkpoints",
+            getpass.getuser(),
+            config.experiment_name,
+            config.trial_name,
+            "default"
+        )
+        
+        # Get max_new_tokens from config, but increase for testing to allow longer reasoning
+        # Training uses shorter sequences for efficiency, but testing needs full answers
+        training_max_tokens = config.gconfig.max_new_tokens
+        test_max_tokens = max(training_max_tokens, 512)  # Use at least 512 for testing
+        max_new_tokens = str(test_max_tokens)
+        print(f"Using max_new_tokens: {max_new_tokens} for testing (training used {training_max_tokens})")
+        
+        # Get the latest checkpoint (by modification time)
+        if os.path.exists(checkpoint_dir):
+            checkpoints = [d for d in os.listdir(checkpoint_dir) if os.path.isdir(os.path.join(checkpoint_dir, d))]
+            if checkpoints:
+                # Sort by modification time, get the latest
+                checkpoints.sort(key=lambda x: os.path.getmtime(os.path.join(checkpoint_dir, x)), reverse=True)
+                latest_checkpoint = os.path.join(checkpoint_dir, checkpoints[0])
+                
+                print(f"Trained model checkpoint: {latest_checkpoint}")
+                
+                # Determine if this is a reasoning model
+                is_reasoning = "reasoning" in config.experiment_name.lower() or "reasoning" in config.train_dataset.path.lower()
+                
+                # Save logs to network volume (persists after pod stops)
+                test_log_dir = os.path.join(config.cluster.fileroot, "test_logs")
+                
+                # Use configurable batch size (default: 16 for faster testing)
+                test_batch_size = os.environ.get("TEST_BATCH_SIZE", "16")
+                
+                if is_reasoning:
+                    # Use reasoning test script
+                    test_script = os.path.join(script_dir, "test_reasoning_model_cloud.py")
+                    
+                    # Test baseline model first
+                    print(f"\n{'='*80}")
+                    print("Testing BASELINE model...")
+                    print(f"{'='*80}\n")
+                    baseline_cmd = [
+                        sys.executable,
+                        test_script,
+                        "--model-path", baseline_model_path,
+                        "--max-samples", "50",
+                        "--max-new-tokens", max_new_tokens,  # Use config value
+                        "--log-dir", test_log_dir,
+                        "--model-name", "BASELINE",
+                        "--batch-size", test_batch_size,
+                    ]
+                    
+                    # Test trained model
+                    print(f"\n{'='*80}")
+                    print("Testing TRAINED model...")
+                    print(f"{'='*80}\n")
+                    trained_cmd = [
+                        sys.executable,
+                        test_script,
+                        "--model-path", latest_checkpoint,
+                        "--max-samples", "50",
+                        "--max-new-tokens", max_new_tokens,  # Use config value
+                        "--log-dir", test_log_dir,
+                        "--model-name", "TRAINED",
+                        "--batch-size", test_batch_size,
+                    ]
+                else:
+                    # Use regular test script (supports both --model-path and --config)
+                    test_script = os.path.join(script_dir, "test_trained_model_cloud.py")
+                    
+                    # Test baseline model first
+                    print(f"\n{'='*80}")
+                    print("Testing BASELINE model...")
+                    print(f"{'='*80}\n")
+                    baseline_cmd = [
+                        sys.executable,
+                        test_script,
+                        "--model-path", baseline_model_path,
+                        "--max-samples", "50",
+                        "--max-new-tokens", str(max_new_tokens),
+                        "--log-dir", test_log_dir,
+                        "--model-name", "BASELINE",
+                        "--batch-size", test_batch_size,
+                    ]
+                    
+                    # Test trained model
+                    print(f"\n{'='*80}")
+                    print("Testing TRAINED model...")
+                    print(f"{'='*80}\n")
+                    trained_cmd = [
+                        sys.executable,
+                        test_script,
+                        "--model-path", latest_checkpoint,
+                        "--max-samples", "50",
+                        "--max-new-tokens", str(max_new_tokens),
+                        "--log-dir", test_log_dir,
+                        "--model-name", "TRAINED",
+                        "--batch-size", test_batch_size,
+                    ]
+                
+                try:
+                    baseline_accuracy = None
+                    trained_accuracy = None
+                    
+                    # Test baseline model
+                    if baseline_cmd is not None:
+                        print(f"\n{'='*80}")
+                        print("Testing BASELINE model...")
+                        print(f"{'='*80}\n")
+                        # Don't capture output so it prints directly to terminal
+                        baseline_result = subprocess.run(baseline_cmd, check=False, capture_output=False)
+                        
+                        # Extract accuracy from log file (test script prints to both stdout and log file)
+                        # Wait for log file to be written (30 seconds to ensure file is fully written)
+                        time.sleep(30)
+                        
+                        if baseline_result.returncode == 0:
+                            # Try to find the log file and extract accuracy from it
+                            log_pattern = os.path.join(test_log_dir, f"test_model_baseline_*.log")
+                            log_files = glob.glob(log_pattern)
+                            if log_files:
+                                # Get the most recent log file
+                                latest_log = max(log_files, key=os.path.getmtime)
+                                try:
+                                    with open(latest_log, 'r', encoding='utf-8') as f:
+                                        log_content = f.read()
+                                        # Try multiple patterns to match accuracy
+                                        patterns = [
+                                            r'BASELINE\s+MODEL\s+ACCURACY:\s+(\d+\.\d+)%',
+                                            r'FINAL\s+ACCURACY:\s+(\d+\.\d+)%',
+                                            r'(?:[A-Z]+\s+)?(?:MODEL\s+)?ACCURACY:\s+(\d+\.\d+)%',
+                                        ]
+                                        for pattern in patterns:
+                                            match = re.search(pattern, log_content, re.IGNORECASE)
+                                            if match:
+                                                baseline_accuracy = float(match.group(1))
+                                                break
+                                except Exception as e:
+                                    print(f"Warning: Could not read baseline log file: {e}")
+                            print(f"\n✅ Baseline test completed successfully!")
+                        else:
+                            print(f"\n⚠️  Baseline test exited with code {baseline_result.returncode}")
+                    
+                    # Test trained model
+                    print(f"\n{'='*80}")
+                    print("Testing TRAINED model...")
+                    print(f"{'='*80}\n")
+                    # Don't capture output so it prints directly to terminal
+                    trained_result = subprocess.run(trained_cmd, check=False, capture_output=False)
+                    
+                    # Extract accuracy from log file (test script prints to both stdout and log file)
+                    # Wait for log file to be written (30 seconds to ensure file is fully written)
+                    time.sleep(30)
+                    
+                    if trained_result.returncode == 0:
+                        # Try to find the log file and extract accuracy from it
+                        log_pattern = os.path.join(test_log_dir, f"test_model_trained_*.log")
+                        log_files = glob.glob(log_pattern)
+                        if log_files:
+                            # Get the most recent log file
+                            latest_log = max(log_files, key=os.path.getmtime)
+                            try:
+                                with open(latest_log, 'r', encoding='utf-8') as f:
+                                    log_content = f.read()
+                                    # Try multiple patterns to match accuracy
+                                    patterns = [
+                                        r'TRAINED\s+MODEL\s+ACCURACY:\s+(\d+\.\d+)%',
+                                        r'FINAL\s+ACCURACY:\s+(\d+\.\d+)%',
+                                        r'(?:[A-Z]+\s+)?(?:MODEL\s+)?ACCURACY:\s+(\d+\.\d+)%',
+                                    ]
+                                    for pattern in patterns:
+                                        match = re.search(pattern, log_content, re.IGNORECASE)
+                                        if match:
+                                            trained_accuracy = float(match.group(1))
+                                            break
+                            except Exception as e:
+                                print(f"Warning: Could not read trained log file: {e}")
+                        print(f"\n✅ Trained test completed successfully!")
+                    else:
+                        print(f"\n⚠️  Trained model test exited with code {trained_result.returncode}")
+                    
+                    # Print comparison summary
+                    print(f"\n{'='*80}")
+                    print("TEST RESULTS SUMMARY")
+                    print(f"{'='*80}")
+                    if baseline_accuracy is not None:
+                        print(f"Baseline Model Accuracy: {baseline_accuracy:.2f}%")
+                    else:
+                        print(f"Baseline Model Accuracy: N/A (test may have failed)")
+                    
+                    if trained_accuracy is not None:
+                        print(f"Trained Model Accuracy:  {trained_accuracy:.2f}%")
+                    else:
+                        print(f"Trained Model Accuracy:  N/A (test may have failed)")
+                    
+                    if baseline_accuracy is not None and trained_accuracy is not None:
+                        improvement = trained_accuracy - baseline_accuracy
+                        improvement_pct = (improvement / baseline_accuracy * 100) if baseline_accuracy > 0 else 0
+                        print(f"\nImprovement: {improvement:+.2f}% ({improvement_pct:+.1f}% relative)")
+                        if improvement > 0:
+                            print("✅ Training improved model performance!")
+                        elif improvement < 0:
+                            print("⚠️  Training degraded model performance")
+                        else:
+                            print("➡️  Training did not change model performance")
+                    
+                    print(f"{'='*80}\n")
+                    
+                    if baseline_result.returncode == 0 and trained_result.returncode == 0:
+                        print(f"✅ All tests completed successfully!")
+                    else:
+                        print(f"⚠️  Some tests may have failed. Check logs above for details.")
+                    print(f"{'='*80}\n")
+                    
+                    # Auto-upload logs if configured
+                    upload_method = os.environ.get("AUTO_UPLOAD_LOGS_METHOD")
+                    if upload_method:
+                        # Normalize method to lowercase (handle EMAIL -> email, etc.)
+                        upload_method = upload_method.lower()
+                        print(f"\n{'='*80}")
+                        print(f"📤 Auto-uploading test logs via {upload_method}...")
+                        print(f"{'='*80}\n")
+                        try:
+                            upload_script = os.path.join(script_dir, "upload_logs.py")
+                            upload_cmd = [
+                                sys.executable,
+                                upload_script,
+                                "--log-dir", test_log_dir,
+                                "--method", upload_method,
+                                "--latest-only",  # Only upload latest baseline and trained logs
+                            ]
+                            
+                            # Add method-specific arguments from environment
+                            if upload_method == "email":
+                                if os.environ.get("AUTO_UPLOAD_EMAIL_TO"):
+                                    upload_cmd.extend(["--email-to", os.environ.get("AUTO_UPLOAD_EMAIL_TO")])
+                            elif upload_method == "gdrive":
+                                if os.environ.get("AUTO_UPLOAD_GDRIVE_FOLDER_ID"):
+                                    upload_cmd.extend(["--gdrive-folder-id", os.environ.get("AUTO_UPLOAD_GDRIVE_FOLDER_ID")])
+                            elif upload_method == "s3":
+                                if os.environ.get("AUTO_UPLOAD_S3_BUCKET"):
+                                    upload_cmd.extend(["--s3-bucket", os.environ.get("AUTO_UPLOAD_S3_BUCKET")])
+                                if os.environ.get("AUTO_UPLOAD_S3_PREFIX"):
+                                    upload_cmd.extend(["--s3-prefix", os.environ.get("AUTO_UPLOAD_S3_PREFIX")])
+                            elif upload_method == "hf":
+                                if os.environ.get("AUTO_UPLOAD_HF_REPO_ID"):
+                                    upload_cmd.extend(["--hf-repo-id", os.environ.get("AUTO_UPLOAD_HF_REPO_ID")])
+                            elif upload_method == "wandb":
+                                if os.environ.get("AUTO_UPLOAD_WANDB_PROJECT"):
+                                    upload_cmd.extend(["--wandb-project", os.environ.get("AUTO_UPLOAD_WANDB_PROJECT")])
+                                if os.environ.get("AUTO_UPLOAD_WANDB_RUN_NAME"):
+                                    upload_cmd.extend(["--wandb-run-name", os.environ.get("AUTO_UPLOAD_WANDB_RUN_NAME")])
+                            elif upload_method == "webhook":
+                                if os.environ.get("AUTO_UPLOAD_WEBHOOK_URL"):
+                                    upload_cmd.extend(["--webhook-url", os.environ.get("AUTO_UPLOAD_WEBHOOK_URL")])
+                            
+                            upload_result = subprocess.run(upload_cmd, check=False, capture_output=True)
+                            if upload_result.returncode == 0:
+                                print(f"✅ Logs uploaded successfully via {upload_method}!")
+                            else:
+                                print(f"⚠️  Log upload failed: {upload_result.stderr.decode() if upload_result.stderr else 'Unknown error'}")
+                        except Exception as upload_error:
+                            print(f"⚠️  Failed to upload logs: {upload_error}")
+                            print(f"   You can manually upload logs using:")
+                            print(f"   python {upload_script} --log-dir {test_log_dir} --method {upload_method} ...")
+                        print(f"{'='*80}\n")
+                except Exception as e:
+                    print(f"\n{'='*80}")
+                    print(f"⚠️  Failed to run test: {e}")
+                    print(f"   You can run the test manually with:")
+                    print(f"   Baseline: python {test_script} --model-path {baseline_model_path} --max-samples 50 --max-new-tokens {max_new_tokens} --model-name BASELINE")
+                    print(f"   Trained:  python {test_script} --model-path {latest_checkpoint} --max-samples 50 --max-new-tokens {max_new_tokens} --model-name TRAINED")
+                    print(f"{'='*80}\n")
+            else:
+                print(f"⚠️  No checkpoints found in {checkpoint_dir}")
+        else:
+            print(f"⚠️  Checkpoint directory not found: {checkpoint_dir}")
 
 
 if __name__ == "__main__":

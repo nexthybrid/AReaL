@@ -1,6 +1,6 @@
-# Cloud Deployment Guide for GRPO Training
+# Cloud Deployment Guide for GRPO and SFT Training
 
-This directory contains scripts and configurations for running AReaL GRPO training on cloud GPU platforms, **optimized for RunPod** (most economical option).
+This directory contains scripts and configurations for running AReaL GRPO and SFT training on cloud GPU platforms, **optimized for RunPod** (most economical option).
 
 ## Recommended Platform: RunPod
 
@@ -33,30 +33,147 @@ bash examples/cloud_gsm8k/run_training_cloud.sh fast      # 20-30 min, any GPU
 bash examples/cloud_gsm8k/run_training_cloud.sh 1hour     # 1-2 hours, any GPU (default)
 bash examples/cloud_gsm8k/run_training_cloud.sh 3hour     # 3-4 hours, any GPU
 bash examples/cloud_gsm8k/run_training_cloud.sh full       # 5 days, REQUIRES H200/H100/A100-80GB
+
+# Optional: Override number of epochs without modifying YAML files
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6  # Use 6 epochs instead of YAML default
+bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5  # Use 5 epochs instead of YAML default
 ```
 
 **⚠️ Important**: The `full` config requires H200, H100, or A100-80GB (80GB+ memory). The script will automatically validate your GPU and reject full training on smaller GPUs.
 
 **💡 Important**: Set your WandB API key as an environment variable in RunPod (see `RUNPOD_COMPLETE_GUIDE.md` for details)
 
+## SFT Training (Supervised Fine-Tuning)
+
+SFT training is simpler than GRPO as it doesn't require an inference server. It's a good baseline for comparison with GRPO results.
+
+### Quick Start for SFT
+
+```bash
+# Inside pod - choose appropriate config:
+bash examples/cloud_gsm8k/run_sft_training_cloud.sh 1k      # 1K samples, 1 GPU, ~1-2 hours
+bash examples/cloud_gsm8k/run_sft_training_cloud.sh 2k      # 2K samples, 3 GPUs, ~2-3 hours
+bash examples/cloud_gsm8k/run_sft_training_cloud.sh full   # Full dataset, 3 GPUs, ~1-2 days
+
+# Optional: Override number of epochs without modifying YAML files
+bash examples/cloud_gsm8k/run_sft_training_cloud.sh 1k 5    # Use 5 epochs instead of YAML default
+```
+
+### SFT Training Scripts
+
+- `run_sft_training_cloud.sh` - **Main SFT training script**
+  - Supports: `1k`, `2k`, `full`
+  - Validates GPU requirements (1k requires 1 GPU, 2k/full require 3 GPUs)
+  - **Epoch override**: Optional second parameter to override epochs without modifying YAML files
+  - Usage: `bash examples/cloud_gsm8k/run_sft_training_cloud.sh [config_name] [epochs_override]`
+
+### SFT Training Configurations
+
+- `gsm8k_sft_1000samples_1GPU.yaml` - 1K samples, 1 GPU, ~1-2 hours
+  - Optimized for single A100 80GB GPU
+  - Batch size: 16
+  - Learning rate: 5.0e-5 (standard SFT)
+  
+- `gsm8k_sft_2000samples_3GPUs.yaml` - 2K samples, 3 GPUs, ~2-3 hours
+  - Optimized for 3x A100 80GB GPUs
+  - Batch size: 48 (16 per GPU)
+  - Distributed training for faster processing
+  
+- `gsm8k_sft_full_3GPUs.yaml` - Full dataset, 3 GPUs, ~1-2 days
+  - Full GSM8K dataset (7473 samples)
+  - Optimized for 3x A100 80GB GPUs
+  - Batch size: 48 (16 per GPU)
+
+### SFT Training Script
+
+- `gsm8k_sft_train.py` - **Consolidated SFT training script** (used by `run_sft_training_cloud.sh`)
+  - Handles all SFT training configurations (1k, 2k, full)
+  - Configuration is controlled via YAML files and command-line overrides
+  - Uses AReaL's `FSDPLMEngine` for training
+  - **Auto-upload support**: Automatically uploads training logs after completion (same as GRPO)
+    - Supports: email, gdrive, s3, hf, wandb, webhook
+    - Set `AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=your-email@example.com` to enable
+
+### Testing SFT Models
+
+- `test_sft_full_dataset.sh` - **SFT full dataset test script** - Test trained or baseline SFT model on all 1319 GSM8K test samples
+  - Automatically extracts checkpoint path from training logs
+  - Optimized batch size (32) for A100 80GB GPUs
+  - **Auto-upload support**: Same as GRPO - automatically uploads test logs after completion
+  - **Interval testing**: Test checkpoints at 5-epoch intervals (4, 9, 14, 19, etc.) with `--test-intervals` flag
+    - Useful for tracking training progression and finding optimal checkpoint
+    - Automatically tests epochs 4, 9, 14, 19, 24, etc. (starting from epoch 4 since epoch 0 is initial state)
+    - Skips already-tested checkpoints to save time
+    - Resumes from where it left off if interrupted (container restart)
+    - All interval test logs are automatically uploaded if auto-upload is configured
+  - Usage: `bash examples/cloud_gsm8k/test_sft_full_dataset.sh [checkpoint_path] [log_file] [--test-intervals]`
+  - Examples:
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh baseline` (test baseline model Qwen/Qwen2.5-0.5B-Instruct)
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh` (auto-detect latest checkpoint)
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_sft_1K_10epochs.txt` (extract from log)
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_sft_1K_10epochs.txt --test-intervals` (test at 5-epoch intervals: 4, 9, 14, 19, 24)
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh /path/to/checkpoint --test-intervals` (use specific checkpoint directory with interval testing)
+  - **Important**: The `--test-intervals` flag must be passed to `test_sft_full_dataset.sh`
+  - Batch size can be overridden: `TEST_BATCH_SIZE=48 bash examples/cloud_gsm8k/test_sft_full_dataset.sh`
+  - Auto-upload: Set `AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=user@example.com` (same env vars as training script)
+    - With interval testing: All interval test logs will be uploaded
+  - **Alternative direct call**: `python3 examples/cloud_gsm8k/test_sft_model_cloud.py --model-path <checkpoint> --test-all --batch-size 32`
+
+- `test_sft_model_cloud.py` - **SFT model evaluation script** (used by test_sft_full_dataset.sh)
+  - Tests trained SFT models on GSM8K test set
+  - Uses `process_results` from `areal.reward.math_parser` for consistent answer extraction
+  - Supports batch inference for faster testing
+
 ## Files
 
 ### Main Training Script
 - `run_training_cloud.sh` - **Main training script** - Use this to start training
-  - Supports: `fast`, `1hour`, `3hour`, `full` configs
+  - Supports: `fast`, `1hour`, `3hour`, `full`, `standard_1000samples_2GPUs`, `standard_2000samples_2GPUs_v3`, etc.
   - Auto-detects GPU type (A40, RTX 5090, H200, etc.) and uses appropriate optimized config
   - Validates GPU requirements for `full` training (requires 80GB+ memory)
-  - Usage: `bash examples/cloud_gsm8k/run_training_cloud.sh [config_name]`
+  - **Epoch override**: Optional second parameter to override epochs without modifying YAML files
+  - Usage: `bash examples/cloud_gsm8k/run_training_cloud.sh [config_name] [epochs_override]`
+  - Examples:
+    - `bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3` (uses YAML epochs)
+    - `bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 6` (overrides to 6 epochs)
 
 ### RunPod Documentation
-- `RUNPOD_QUICK_START.md` - ⭐ **Start here for RunPod** - Quick setup guide
-- `RUNPOD_COMPLETE_GUIDE.md` - Complete RunPod guide with troubleshooting
+- `RUNPOD_COMPLETE_GUIDE.md` - ⭐ **Complete RunPod guide** - Setup, troubleshooting, and all procedures
 - `runpod_template.json` - RunPod template configuration (optional)
 
 ### Training Configurations
+
+**Standard GRPO Configs (2x A100 GPUs):**
+- `gsm8k_grpo_1000samples_2GPUs.yaml` - 1000 samples, ~3 hours
+- `gsm8k_grpo_1000samples_2GPUs_v3_conservative.yaml` - 1000 samples, v3 conservative settings, ~3-4 hours
+- `gsm8k_grpo_1000samples_2GPUs_v4.yaml` - 1000 samples, v4 improved settings, ~4-5 hours
+- `gsm8k_grpo_2000samples_2GPUs.yaml` - 2000 samples, ~6 hours
+- `gsm8k_grpo_2000samples_2GPUs_v3.yaml` - 2000 samples, v3 conservative settings, ~6-7 hours
+- `gsm8k_grpo_4000samples_2GPUs.yaml` - 4000 samples, ~12 hours
+
+**Standard GRPO Configs (3x A100 GPUs):**
+- `gsm8k_grpo_1000samples_3GPUs_v3_conservative.yaml` - 1000 samples, v3 conservative settings, ~2-3 hours
+  - Faster training with 2 GPUs for training (vs 1 GPU)
+  - Better for running more epochs efficiently
+  - GPU allocation: 1 GPU for SGLang + 2 GPUs for training
+- `gsm8k_grpo_4000samples_3GPUs_v3_conservative.yaml` - 4000 samples, v3 conservative settings, ~6-8 hours
+  - Aggressively optimized for maximum A100 GPU utilization (50-60% target)
+  - ~40-50% faster than 2-GPU config (6-8 hours vs 12+ hours)
+  - GPU allocation: 1 GPU for SGLang + 2 GPUs for training
+  - Best for larger dataset training with maximum efficiency
+
+**Full Training:**
 - `gsm8k_grpo_cloud.yaml` - **Full training** (REQUIRES H200/H100/A100-80GB, 80GB+ memory)
   - Full dataset (7473 samples), 5 epochs, ~5 days training time
   - Auto-validated: script checks GPU before allowing full training
+- `gsm8k_grpo_full_3GPUs_v3_conservative.yaml` - **Full training with 3 GPUs, v3 conservative** (REQUIRES 3x H200/H100/A100-80GB, 80GB+ memory)
+  - Full dataset (7473 samples), 25 epochs, ~3-3.5 days training time
+  - Aggressively optimized for maximum A100 GPU utilization (50-60% target)
+  - ~40-50% faster than 2-GPU or 1-GPU full training
+  - GPU allocation: 1 GPU for SGLang + 2 GPUs for training
+  - Best for full dataset training with maximum efficiency
+
+**Quick Training (Single GPU):**
 - `gsm8k_grpo_1hour.yaml` - 1-hour training (works on all GPUs)
   - Memory-optimized settings: works on RTX 4090, RTX 5090, A40, A100, H200, etc.
 - `gsm8k_grpo_3hour.yaml` - 3-hour training (works on all GPUs)
@@ -83,9 +200,37 @@ bash examples/cloud_gsm8k/run_training_cloud.sh full       # 5 days, REQUIRES H2
 - `A40_3HOUR_SUMMARY.md` - A40 3-hour training summary
 - `1HOUR_VS_3HOUR_COMPARISON.md` - Comparison of 1-hour vs 3-hour configs
 
+### Testing Scripts
+- `test_trained_model_cloud.py` - Model evaluation script (standard GRPO models)
+- `test_reasoning_model_cloud.py` - Model evaluation script (reasoning models)
+- `test_sft_model_cloud.py` - Model evaluation script (SFT models)
+- `test_sft_full_dataset.sh` - **SFT full dataset test script** - Test SFT models on full GSM8K test set with interval testing support
+- `test_full_dataset.sh` - **Full dataset test script** - Test trained or baseline model on all 1319 GSM8K test samples
+  - Automatically extracts checkpoint path from training logs
+  - Optimized batch size (32) for A100 80GB GPUs
+  - **Auto-upload support**: Same as training script - automatically uploads test logs after completion
+  - **Interval testing**: Test checkpoints at 5-epoch intervals (4, 9, 14, 19, etc.) with `--test-intervals` flag
+    - Useful for tracking training progression and finding optimal checkpoint
+    - Automatically tests epochs 4, 9, 14, 19, 24, etc. (starting from epoch 4 since epoch 0 is initial state)
+    - Skips already-tested checkpoints to save time
+    - Resumes from where it left off if interrupted (container restart)
+    - All interval test logs are automatically uploaded if auto-upload is configured
+  - Usage: `bash examples/cloud_gsm8k/test_full_dataset.sh [checkpoint_path] [log_file] [--test-intervals]`
+  - Examples:
+    - `bash examples/cloud_gsm8k/test_full_dataset.sh baseline` (test baseline model Qwen/Qwen2.5-0.5B-Instruct)
+    - `bash examples/cloud_gsm8k/test_full_dataset.sh` (auto-detect latest checkpoint)
+    - `bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_15epochs.txt` (extract from log)
+    - `bash examples/cloud_gsm8k/test_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_grpo_1k_v3_25epochs.txt --test-intervals` (test at 5-epoch intervals: 4, 9, 14, 19, 24)
+    - `bash examples/cloud_gsm8k/test_full_dataset.sh /path/to/checkpoint --test-intervals` (use specific checkpoint directory with interval testing)
+  - **Important**: The `--test-intervals` flag must be passed to `test_full_dataset.sh`, not to `run_training_cloud.sh`
+  - Batch size can be overridden: `TEST_BATCH_SIZE=48 bash examples/cloud_gsm8k/test_full_dataset.sh`
+  - Auto-upload: Set `AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=user@example.com` (same env vars as training script)
+    - With interval testing: All interval test logs will be uploaded
+  - **Alternative direct call**: `python3 examples/cloud_gsm8k/test_trained_model_cloud.py --model-path Qwen/Qwen2.5-0.5B-Instruct --all --batch-size 32`
+  - **See also**: `RUNPOD_COMPLETE_GUIDE.md` - "Step 10: Interval Testing" section for detailed documentation
+
 ### Other Documentation
 - `CHECKPOINT_SAVING_FIX.md` - Checkpoint saving configuration fixes
-- `test_trained_model_cloud.py` - Model evaluation script
 
 ## Cost Comparison
 
@@ -134,8 +279,8 @@ For full training (5 days):
 
 ## Next Steps
 
-1. **For RunPod Setup**: See `RUNPOD_QUICK_START.md` ⭐
-2. **For Complete Guide**: See `RUNPOD_COMPLETE_GUIDE.md`
-3. **For A40 GPU Issues**: See `A40_GPU_FIX.md` ⚠️
-4. **For H200 Setup**: See `H200_SETUP.md`
-5. **For Recovery**: See `RECOVERY_QUICK_START.md`
+1. **For RunPod Setup**: See `RUNPOD_COMPLETE_GUIDE.md` ⭐ (includes quick start section)
+2. **For Training Best Practices**: See `TRAINING_LEARNINGS.md` (includes tuning guide, epoch analysis, troubleshooting)
+3. **For A40 GPU Issues**: See `RUNPOD_COMPLETE_GUIDE.md` - "CUDA Out of Memory" section
+4. **For H200 Setup**: See `H200_SETUP.md` (if exists)
+5. **For Recovery**: See `TRAINING_LEARNINGS.md` - "Checkpoint and Recovery" section

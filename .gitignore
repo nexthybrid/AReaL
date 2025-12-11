@@ -205,3 +205,6 @@ sympy/
 # Hugging Face cache
 .hf_cache/
 huggingface/
+
+# project report folder
+project_report/

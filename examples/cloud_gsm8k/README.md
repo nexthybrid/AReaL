@@ -96,24 +96,33 @@ bash examples/cloud_gsm8k/run_sft_training_cloud.sh 1k 5    # Use 5 epochs inste
 
 ### Testing SFT Models
 
-- `test_sft_model_cloud.py` - **SFT model evaluation script**
+- `test_sft_full_dataset.sh` - **SFT full dataset test script** - Test trained or baseline SFT model on all 1319 GSM8K test samples
+  - Automatically extracts checkpoint path from training logs
+  - Optimized batch size (32) for A100 80GB GPUs
+  - **Auto-upload support**: Same as GRPO - automatically uploads test logs after completion
+  - **Interval testing**: Test checkpoints at 5-epoch intervals (4, 9, 14, 19, etc.) with `--test-intervals` flag
+    - Useful for tracking training progression and finding optimal checkpoint
+    - Automatically tests epochs 4, 9, 14, 19, 24, etc. (starting from epoch 4 since epoch 0 is initial state)
+    - Skips already-tested checkpoints to save time
+    - Resumes from where it left off if interrupted (container restart)
+    - All interval test logs are automatically uploaded if auto-upload is configured
+  - Usage: `bash examples/cloud_gsm8k/test_sft_full_dataset.sh [checkpoint_path] [log_file] [--test-intervals]`
+  - Examples:
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh baseline` (test baseline model Qwen/Qwen2.5-0.5B-Instruct)
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh` (auto-detect latest checkpoint)
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_sft_1K_10epochs.txt` (extract from log)
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh "" examples/cloud_gsm8k/train_logs/logs_sft_1K_10epochs.txt --test-intervals` (test at 5-epoch intervals: 4, 9, 14, 19, 24)
+    - `bash examples/cloud_gsm8k/test_sft_full_dataset.sh /path/to/checkpoint --test-intervals` (use specific checkpoint directory with interval testing)
+  - **Important**: The `--test-intervals` flag must be passed to `test_sft_full_dataset.sh`
+  - Batch size can be overridden: `TEST_BATCH_SIZE=48 bash examples/cloud_gsm8k/test_sft_full_dataset.sh`
+  - Auto-upload: Set `AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=user@example.com` (same env vars as training script)
+    - With interval testing: All interval test logs will be uploaded
+  - **Alternative direct call**: `python3 examples/cloud_gsm8k/test_sft_model_cloud.py --model-path <checkpoint> --test-all --batch-size 32`
+
+- `test_sft_model_cloud.py` - **SFT model evaluation script** (used by test_sft_full_dataset.sh)
   - Tests trained SFT models on GSM8K test set
   - Uses `process_results` from `areal.reward.math_parser` for consistent answer extraction
   - Supports batch inference for faster testing
-  - Usage:
-    ```bash
-    # Test on full test set
-    python examples/cloud_gsm8k/test_sft_model_cloud.py \
-        --model-path /workspace/outputs/sft/checkpoints/.../epoch2 \
-        --test-all \
-        --batch-size 32
-    
-    # Test on limited samples
-    python examples/cloud_gsm8k/test_sft_model_cloud.py \
-        --model-path /workspace/outputs/sft/checkpoints/.../epoch2 \
-        --max-samples 100 \
-        --batch-size 32
-    ```
 
 ## Files
 
@@ -195,6 +204,7 @@ bash examples/cloud_gsm8k/run_sft_training_cloud.sh 1k 5    # Use 5 epochs inste
 - `test_trained_model_cloud.py` - Model evaluation script (standard GRPO models)
 - `test_reasoning_model_cloud.py` - Model evaluation script (reasoning models)
 - `test_sft_model_cloud.py` - Model evaluation script (SFT models)
+- `test_sft_full_dataset.sh` - **SFT full dataset test script** - Test SFT models on full GSM8K test set with interval testing support
 - `test_full_dataset.sh` - **Full dataset test script** - Test trained or baseline model on all 1319 GSM8K test samples
   - Automatically extracts checkpoint path from training logs
   - Optimized batch size (32) for A100 80GB GPUs

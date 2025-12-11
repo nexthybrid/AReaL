@@ -315,32 +315,68 @@ def main(args):
             # Normalize method to lowercase (handle EMAIL -> email, etc.)
             upload_method = upload_method.lower()
             logger.info(f"\n{'='*80}")
-            logger.info(f"📤 Auto-uploading training logs via {upload_method}...")
+            logger.info(f"📤 Auto-uploading training summary via {upload_method}...")
             logger.info(f"{'='*80}\n")
             try:
                 upload_script = os.path.join(script_dir, "upload_logs.py")
                 
-                # Find training log directory (stats logger output)
-                # Check common log locations
-                log_dirs = [
-                    os.path.join(config.cluster.fileroot, "logs"),
-                    os.path.join(config.cluster.fileroot, "sft", "logs"),
-                    os.path.join("/workspace", "outputs", "sft", "logs"),
-                ]
+                # Create a training summary file to upload
+                # This is similar to what GRPO does, but for SFT we create a summary since there are no test logs
+                summary_dir = os.path.join(config.cluster.fileroot, "sft", "test_logs")
+                os.makedirs(summary_dir, exist_ok=True)
                 
-                # Use the first existing log directory, or default to cluster fileroot
-                log_dir = config.cluster.fileroot
-                for potential_dir in log_dirs:
-                    if os.path.exists(potential_dir):
-                        log_dir = potential_dir
-                        break
+                from datetime import datetime
+                summary_file = os.path.join(summary_dir, f"sft_training_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
                 
+                # Write training summary
+                with open(summary_file, "w", encoding="utf-8") as f:
+                    f.write("=" * 80 + "\n")
+                    f.write("SFT Training Summary\n")
+                    f.write("=" * 80 + "\n")
+                    f.write(f"Experiment: {config.experiment_name}\n")
+                    f.write(f"Trial: {config.trial_name}\n")
+                    f.write(f"Training Mode: {training_mode}\n")
+                    f.write(f"Total Epochs: {total_epochs}\n")
+                    f.write(f"Dataset Size: {actual_dataset_size}\n")
+                    f.write(f"Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write("\n")
+                    f.write("Checkpoints saved to:\n")
+                    checkpoint_base = os.path.join(config.cluster.fileroot, "sft", "checkpoints", config.experiment_name, config.trial_name)
+                    latest_checkpoint = None
+                    if os.path.exists(checkpoint_base):
+                        # Find latest checkpoint
+                        import glob
+                        checkpoint_dirs = glob.glob(os.path.join(checkpoint_base, "**", "epoch*"), recursive=True)
+                        if checkpoint_dirs:
+                            checkpoint_dirs.sort(key=os.path.getmtime, reverse=True)
+                            latest_checkpoint = checkpoint_dirs[0]
+                            f.write(f"  Latest: {latest_checkpoint}\n")
+                            f.write(f"  Total checkpoints: {len(checkpoint_dirs)}\n")
+                        else:
+                            f.write(f"  Base directory: {checkpoint_base}\n")
+                    else:
+                        f.write(f"  Base directory: {checkpoint_base} (not found yet)\n")
+                    f.write("\n")
+                    f.write("=" * 80 + "\n")
+                    f.write("To test the model, run:\n")
+                    f.write(f"  python examples/cloud_gsm8k/test_sft_model_cloud.py \\\n")
+                    if latest_checkpoint:
+                        f.write(f"    --model-path {latest_checkpoint} \\\n")
+                    else:
+                        f.write(f"    --model-path <checkpoint_path> \\\n")
+                    f.write(f"    --test-all \\\n")
+                    f.write(f"    --batch-size 32\n")
+                    f.write("=" * 80 + "\n")
+                
+                logger.info(f"Created training summary: {summary_file}")
+                
+                # Upload the summary file
                 upload_cmd = [
                     sys.executable,
                     upload_script,
-                    "--log-dir", log_dir,
+                    "--log-dir", summary_dir,
                     "--method", upload_method,
-                    "--latest-only",  # Only upload latest logs
+                    "--log-files", summary_file,  # Upload specific file
                 ]
                 
                 # Add method-specific arguments from environment
@@ -369,15 +405,26 @@ def main(args):
                     if os.environ.get("AUTO_UPLOAD_WEBHOOK_API_KEY"):
                         upload_cmd.extend(["--webhook-api-key", os.environ.get("AUTO_UPLOAD_WEBHOOK_API_KEY")])
                 
+                logger.info(f"Running upload command: {' '.join(upload_cmd)}")
                 upload_result = subprocess.run(upload_cmd, check=False, capture_output=True, text=True)
+                
+                if upload_result.stdout:
+                    logger.info(f"Upload stdout: {upload_result.stdout}")
+                if upload_result.stderr:
+                    logger.warning(f"Upload stderr: {upload_result.stderr}")
+                
                 if upload_result.returncode == 0:
-                    logger.info(f"✅ Logs uploaded successfully via {upload_method}!")
+                    logger.info(f"✅ Training summary uploaded successfully via {upload_method}!")
                 else:
-                    logger.warning(f"⚠️  Log upload failed: {upload_result.stderr if upload_result.stderr else 'Unknown error'}")
+                    logger.warning(f"⚠️  Log upload failed with exit code {upload_result.returncode}")
+                    if upload_result.stderr:
+                        logger.warning(f"   Error: {upload_result.stderr}")
             except Exception as upload_error:
                 logger.warning(f"⚠️  Failed to upload logs: {upload_error}")
-                logger.info(f"   You can manually upload logs using:")
-                logger.info(f"   python {upload_script} --log-dir {log_dir} --method {upload_method} ...")
+                import traceback
+                logger.warning(f"   Traceback: {traceback.format_exc()}")
+                logger.info(f"   You can manually upload the summary using:")
+                logger.info(f"   python {upload_script} --log-dir {summary_dir} --method {upload_method} --log-files {summary_file} ...")
             logger.info(f"{'='*80}\n")
     
     stats_logger.close()

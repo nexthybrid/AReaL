@@ -11,18 +11,19 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
 from datasets import load_dataset
-from areal.reward.math_parser import process_results, parse_digits
+from math_parser import process_results, parse_digits
+
 
 def test_model(
-    model_path: str,
-    max_samples: int = 10,
-    max_new_tokens: int = 1024,
-    log_dir: str | None = None,
-    test_all: bool = False,
-    batch_size: int = 32
+        model_path: str,
+        max_samples: int = 10,
+        max_new_tokens: int = 1024,
+        log_dir: str | None = None,
+        test_all: bool = False,
+        batch_size: int = 32
 ):
     """Test the model on GSM8K samples."""
-    
+
     # Prepare logging
     if log_dir is None:
         log_dir = os.path.join("examples", "local_gsm8k", "logs")
@@ -31,20 +32,20 @@ def test_model(
     log_path = os.path.join(log_dir, f"test_{ts}.log")
 
     def _log(msg: str):
-        with open(log_path, "a", encoding="utf-8") as lf:
+        with open(log_path, "a") as lf:
             lf.write(msg + "\n")
 
-    _log(f"\n{'='*60}")
+    _log(f"\n{'=' * 60}")
     _log(f"Testing model: {model_path}")
     _log(f"Log file: {log_path}")
-    _log(f"{'='*60}\n")
-    
+    _log(f"{'=' * 60}\n")
+
     # Load model
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     tokenizer.padding_side = "left"
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    
+
     # Use CPU for more stable inference
     device = torch.device("cpu")
     if torch.cuda.is_available():
@@ -55,14 +56,14 @@ def test_model(
             mps_available = torch.backends.mps.is_available() if hasattr(torch.backends, 'mps') else False
         except (AttributeError, RuntimeError):
             mps_available = False
-        
+
         if mps_available:
             device = torch.device("mps")
     _log(f"Using device: {device}")
 
     # Use bfloat16 if GPU supports it (Ampere+), else float16
     torch_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    
+
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype=torch_dtype,
@@ -72,7 +73,7 @@ def test_model(
 
     # Load GSM8K test set
     dataset = load_dataset("openai/gsm8k", "main", split="test")
-    
+
     # Determine how many samples to test
     if test_all or max_samples == -1:
         num_samples = len(dataset)
@@ -80,7 +81,7 @@ def test_model(
     else:
         num_samples = min(max_samples, len(dataset))
         _log(f"Testing on {num_samples} samples (out of {len(dataset)} total)")
-    
+
     results = []
     correct = 0
 
@@ -95,7 +96,7 @@ def test_model(
             ans = item["answer"]
             hashes_idx = ans.find("#### ")
             if hashes_idx != -1:
-                ans = ans[:hashes_idx] + "\\boxed{" + ans[hashes_idx + 5 :] + "}"
+                ans = ans[:hashes_idx] + "\\boxed{" + ans[hashes_idx + 5:] + "}"
             batch_answers.append(ans)
 
             # Apply chat template to raw string
@@ -112,7 +113,7 @@ def test_model(
             padding=True,  # This uses the 'left' padding set earlier
             truncation=True
         ).to(model.device)
-        
+
         # Generate with greedy decoding for stability
         with torch.no_grad():
             outputs = model.generate(
@@ -128,8 +129,6 @@ def test_model(
         generated_tokens = outputs[:, input_len:]
         decoded_texts = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
 
-        parser_result, extracted_answers = process_results(correct_answer, generated_text)
-        gt_extracted, sol_extracted = [parse_digits(ans) for ans in extracted_answers]
         # Calculate the starting index for this batch relative to the total dataset
         batch_start_index = pbar.n
         for i, generated_text in enumerate(decoded_texts):
@@ -143,7 +142,7 @@ def test_model(
             is_correct = bool(parser_result)
             if is_correct:
                 correct += 1
-        
+
             results.append({
                 "question": question,
                 "correct_answer": correct_answer,
@@ -152,7 +151,7 @@ def test_model(
                 "sol_extracted": sol_extracted,
                 "correct": is_correct,
             })
-        
+
             _log(f"\n--- Question {global_idx} ---")
             _log(f"Question: {question}")
 
@@ -173,11 +172,11 @@ def test_model(
         pbar.update(len(batch))
 
     accuracy = correct / len(results) * 100
-    _log(f"\n{'='*60}")
+    _log(f"\n{'=' * 60}")
     _log(f"ACCURACY: {accuracy:.2f}% ({correct}/{len(results)})")
     _log(f"Log saved to: {log_path}")
-    _log(f"{'='*60}\n")
-    
+    _log(f"{'=' * 60}\n")
+
     return {
         "accuracy": accuracy,
         "correct": correct,
@@ -188,27 +187,27 @@ def test_model(
 
 def compare_models(base_model: str, trained_model: str, max_samples: int = 10, test_all: bool = False):
     """Compare base model and trained model."""
-    
-    print(f"\n{'#'*60}")
+
+    print(f"\n{'#' * 60}")
     print("MODEL COMPARISON")
-    print(f"{'#'*60}\n")
-    
+    print(f"{'#' * 60}\n")
+
     # Test base model
     base_results = test_model(base_model, max_samples=max_samples, test_all=test_all)
-    
+
     # Test trained model
     trained_results = test_model(trained_model, max_samples=max_samples, test_all=test_all)
-    
+
     # Print comparison
-    print(f"\n{'#'*60}")
+    print(f"\n{'#' * 60}")
     print("COMPARISON SUMMARY")
-    print(f"{'#'*60}")
+    print(f"{'#' * 60}")
     print(f"Base Model Accuracy:    {base_results['accuracy']:.2f}%")
     print(f"Trained Model Accuracy: {trained_results['accuracy']:.2f}%")
     improvement = trained_results['accuracy'] - base_results['accuracy']
     print(f"Improvement:            {improvement:+.2f}%")
-    print(f"{'#'*60}\n")
-    
+    print(f"{'#' * 60}\n")
+
     # Save results
     comparison = {
         "base_model": base_model,
@@ -217,17 +216,19 @@ def compare_models(base_model: str, trained_model: str, max_samples: int = 10, t
         "trained_results": trained_results,
         "improvement": improvement,
     }
-    
+
     with open("model_comparison.json", "w") as f:
         json.dump(comparison, f, indent=2)
-    
+
     print("Results saved to model_comparison.json")
-    
+
     return comparison
+
 
 def get_batch(data, batch_size):
     for i in range(0, len(data), batch_size):
         yield data[i:i + batch_size]
+
 
 def main():
     parser = argparse.ArgumentParser(description="Test and compare models")
@@ -283,16 +284,16 @@ def main():
         default=256,
         help="Testing batch size",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Determine if testing all samples
     test_all = args.all or args.max_samples == -1
-    
+
     if args.compare:
         compare_models(
-            args.base_model, 
-            args.trained_model, 
+            args.base_model,
+            args.trained_model,
             max_samples=args.max_samples if not test_all else -1
         )
     elif args.model:
@@ -318,4 +319,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

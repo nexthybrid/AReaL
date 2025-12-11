@@ -1,6 +1,6 @@
-# Cloud Deployment Guide for GRPO Training
+# Cloud Deployment Guide for GRPO and SFT Training
 
-This directory contains scripts and configurations for running AReaL GRPO training on cloud GPU platforms, **optimized for RunPod** (most economical option).
+This directory contains scripts and configurations for running AReaL GRPO and SFT training on cloud GPU platforms, **optimized for RunPod** (most economical option).
 
 ## Recommended Platform: RunPod
 
@@ -42,6 +42,78 @@ bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5 
 **⚠️ Important**: The `full` config requires H200, H100, or A100-80GB (80GB+ memory). The script will automatically validate your GPU and reject full training on smaller GPUs.
 
 **💡 Important**: Set your WandB API key as an environment variable in RunPod (see `RUNPOD_COMPLETE_GUIDE.md` for details)
+
+## SFT Training (Supervised Fine-Tuning)
+
+SFT training is simpler than GRPO as it doesn't require an inference server. It's a good baseline for comparison with GRPO results.
+
+### Quick Start for SFT
+
+```bash
+# Inside pod - choose appropriate config:
+bash examples/cloud_gsm8k/run_sft_training_cloud.sh 1k      # 1K samples, 1 GPU, ~1-2 hours
+bash examples/cloud_gsm8k/run_sft_training_cloud.sh 2k      # 2K samples, 3 GPUs, ~2-3 hours
+bash examples/cloud_gsm8k/run_sft_training_cloud.sh full   # Full dataset, 3 GPUs, ~1-2 days
+
+# Optional: Override number of epochs without modifying YAML files
+bash examples/cloud_gsm8k/run_sft_training_cloud.sh 1k 5    # Use 5 epochs instead of YAML default
+```
+
+### SFT Training Scripts
+
+- `run_sft_training_cloud.sh` - **Main SFT training script**
+  - Supports: `1k`, `2k`, `full`
+  - Validates GPU requirements (1k requires 1 GPU, 2k/full require 3 GPUs)
+  - **Epoch override**: Optional second parameter to override epochs without modifying YAML files
+  - Usage: `bash examples/cloud_gsm8k/run_sft_training_cloud.sh [config_name] [epochs_override]`
+
+### SFT Training Configurations
+
+- `gsm8k_sft_1000samples_1GPU.yaml` - 1K samples, 1 GPU, ~1-2 hours
+  - Optimized for single A100 80GB GPU
+  - Batch size: 16
+  - Learning rate: 5.0e-5 (standard SFT)
+  
+- `gsm8k_sft_2000samples_3GPUs.yaml` - 2K samples, 3 GPUs, ~2-3 hours
+  - Optimized for 3x A100 80GB GPUs
+  - Batch size: 48 (16 per GPU)
+  - Distributed training for faster processing
+  
+- `gsm8k_sft_full_3GPUs.yaml` - Full dataset, 3 GPUs, ~1-2 days
+  - Full GSM8K dataset (7473 samples)
+  - Optimized for 3x A100 80GB GPUs
+  - Batch size: 48 (16 per GPU)
+
+### SFT Training Script
+
+- `gsm8k_sft_train.py` - **Consolidated SFT training script** (used by `run_sft_training_cloud.sh`)
+  - Handles all SFT training configurations (1k, 2k, full)
+  - Configuration is controlled via YAML files and command-line overrides
+  - Uses AReaL's `FSDPLMEngine` for training
+  - **Auto-upload support**: Automatically uploads training logs after completion (same as GRPO)
+    - Supports: email, gdrive, s3, hf, wandb, webhook
+    - Set `AUTO_UPLOAD_LOGS_METHOD=email AUTO_UPLOAD_EMAIL_TO=your-email@example.com` to enable
+
+### Testing SFT Models
+
+- `test_sft_model_cloud.py` - **SFT model evaluation script**
+  - Tests trained SFT models on GSM8K test set
+  - Uses `process_results` from `areal.reward.math_parser` for consistent answer extraction
+  - Supports batch inference for faster testing
+  - Usage:
+    ```bash
+    # Test on full test set
+    python examples/cloud_gsm8k/test_sft_model_cloud.py \
+        --model-path /workspace/outputs/sft/checkpoints/.../epoch2 \
+        --test-all \
+        --batch-size 32
+    
+    # Test on limited samples
+    python examples/cloud_gsm8k/test_sft_model_cloud.py \
+        --model-path /workspace/outputs/sft/checkpoints/.../epoch2 \
+        --max-samples 100 \
+        --batch-size 32
+    ```
 
 ## Files
 
@@ -122,6 +194,7 @@ bash examples/cloud_gsm8k/run_training_cloud.sh standard_2000samples_2GPUs_v3 5 
 ### Testing Scripts
 - `test_trained_model_cloud.py` - Model evaluation script (standard GRPO models)
 - `test_reasoning_model_cloud.py` - Model evaluation script (reasoning models)
+- `test_sft_model_cloud.py` - Model evaluation script (SFT models)
 - `test_full_dataset.sh` - **Full dataset test script** - Test trained or baseline model on all 1319 GSM8K test samples
   - Automatically extracts checkpoint path from training logs
   - Optimized batch size (32) for A100 80GB GPUs

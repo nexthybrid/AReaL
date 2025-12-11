@@ -1,0 +1,104 @@
+# SFT Training Configuration (1K samples, 1 GPU)
+# Optimized for single A100 80GB GPU
+# Expected training time: ~1-2 hours
+
+experiment_name: gsm8k-sft-cloud-1gpu-1000samples
+trial_name: trial0
+
+# Training configuration
+max_train_samples: 1000  # 1000-sample subset
+training_mode: "1K-SAMPLES-1GPU"
+
+seed: 1
+total_train_epochs: 3  # Can be overridden via command line
+tokenizer_path: ${model.path}
+
+cluster:
+  n_nodes: 1
+  n_gpus_per_node: 1  # Single GPU for training
+  fileroot: /workspace/outputs/sft
+  name_resolve:
+    type: nfs
+    nfs_record_root: ./tmp/areal/name_resolve
+
+# Allocation: Single GPU for training (no inference server needed for SFT)
+allocation_mode: d1t1p1
+
+model:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  path: Qwen/Qwen2.5-0.5B-Instruct
+  init_from_scratch: false
+  disable_dropout: true
+  gradient_checkpointing: false  # A100 80GB has plenty of memory
+  dtype: bfloat16
+  mb_spec:
+    max_tokens_per_mb: 8192  # Optimized for A100 80GB
+  optimizer:
+    type: adam
+    lr: 5.0e-5  # Standard SFT learning rate
+    weight_decay: 0.01
+    beta1: 0.9
+    beta2: 0.999
+    eps: 1e-8
+    lr_scheduler_type: cosine
+    gradient_clipping: 1.0
+    warmup_steps_proportion: 0.03  # 3% warmup
+  backend: fsdp
+
+train_dataset:
+  batch_size: 16  # Optimized for A100 80GB
+  shuffle: true
+  pin_memory: true
+  num_workers: 0
+  path: openai/gsm8k
+  type: sft  # SFT dataset type
+  max_length: 512
+
+valid_dataset:
+  batch_size: 16
+  shuffle: false
+  pin_memory: true
+  num_workers: 0
+  path: openai/gsm8k
+  type: sft
+  max_length: 512
+
+saver:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  fileroot: ${cluster.fileroot}
+  freq_epochs: 1  # Save every epoch
+  freq_steps: null
+  freq_secs: null
+
+recover:
+  mode: disabled
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  fileroot: ${cluster.fileroot}
+  freq_epochs: 1
+  freq_steps: null
+  freq_secs: 3600
+
+evaluator:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  fileroot: ${cluster.fileroot}
+  freq_epochs: 1  # Evaluate every epoch
+  freq_steps: null
+  freq_secs: null
+
+stats_logger:
+  experiment_name: ${experiment_name}
+  trial_name: ${trial_name}
+  fileroot: ${cluster.fileroot}
+  wandb:
+    mode: online
+    wandb_api_key: ${oc.env:WANDB_API_KEY,""}
+    project: gsm8k-sft-cloud
+
+launcher:
+  trainer_cpus_per_gpu: 4
+  trainer_mem_per_gpu: 16384
+
